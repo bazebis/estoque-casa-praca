@@ -55,16 +55,32 @@ function getCatalogImportMode() {
     return document.querySelector("input[name='catalog-import-mode']:checked")?.value || "append";
 }
 
+function getBackupImportMode() {
+    return document.querySelector("input[name='backup-import-mode']:checked")?.value || "merge-history";
+}
+
 function clearCatalogImportFile() {
     getElement("catalog-import-file").value = "";
+}
+
+function clearBackupImportFile() {
+    getElement("backup-import-file").value = "";
 }
 
 function setCatalogImportStatus(message) {
     getElement("catalog-import-status").textContent = message;
 }
 
+function setBackupImportStatus(message) {
+    getElement("backup-import-status").textContent = message;
+}
+
 function setCatalogImportActionsVisible(isVisible) {
     getElement("catalog-import-actions").hidden = !isVisible;
+}
+
+function setBackupImportActionsVisible(isVisible) {
+    getElement("backup-import-actions").hidden = !isVisible;
 }
 
 function createUnitOption(unit, selectedUnitId) {
@@ -447,6 +463,10 @@ function renderImportItemPreview(items) {
     return list;
 }
 
+function formatBackupDate(value) {
+    return formatDateTime(value) || "Não informado";
+}
+
 function copyWithFallback(text) {
     const textarea = document.createElement("textarea");
     textarea.value = text;
@@ -534,6 +554,16 @@ export function showCatalogImportStatus(message) {
     setCatalogImportStatus(message);
 }
 
+export function resetBackupImportPreview() {
+    getElement("backup-import-preview").innerHTML = "";
+    setBackupImportStatus("");
+    setBackupImportActionsVisible(false);
+}
+
+export function showBackupImportStatus(message) {
+    setBackupImportStatus(message);
+}
+
 export function renderCatalogImportPreview(result) {
     const preview = getElement("catalog-import-preview");
     preview.innerHTML = "";
@@ -556,6 +586,37 @@ export function renderCatalogImportPreview(result) {
 
     preview.appendChild(renderImportItemPreview(result.items));
     setCatalogImportActionsVisible(result.items.length > 0);
+}
+
+export function renderBackupImportPreview(preview) {
+    const container = getElement("backup-import-preview");
+    container.innerHTML = "";
+
+    if (!preview.isValid) {
+        setBackupImportStatus(preview.error || "Backup inválido.");
+        setBackupImportActionsVisible(false);
+        return;
+    }
+
+    setBackupImportStatus("Backup válido. Confira os dados antes de importar.");
+
+    const list = document.createElement("ul");
+    list.className = "backup-preview-list";
+
+    [
+        `Exportado em: ${formatBackupDate(preview.exportedAt)}`,
+        `Schema: ${preview.schemaVersion}`,
+        `Itens no catálogo: ${preview.catalogCount}`,
+        `Contagens no histórico: ${preview.historyCount}`,
+        `Rascunho no arquivo: ${preview.hasDraft ? "sim" : "não"}`
+    ].forEach((text) => {
+        const item = document.createElement("li");
+        item.textContent = text;
+        list.appendChild(item);
+    });
+
+    container.appendChild(list);
+    setBackupImportActionsVisible(true);
 }
 
 export function renderDraftNotice(draft, handlers) {
@@ -802,6 +863,42 @@ function connectCatalogImportEvents(handlers) {
     });
 }
 
+function connectBackupEvents(handlers) {
+    getElement("btn-exportar-backup").addEventListener("click", handlers.onExportBackup);
+
+    getElement("backup-import-file").addEventListener("change", () => {
+        resetBackupImportPreview();
+        handlers.onCancelBackupImport();
+    });
+
+    getElement("btn-analisar-backup").addEventListener("click", async () => {
+        const file = getElement("backup-import-file").files[0];
+
+        if (!file) {
+            setBackupImportStatus("Selecione um arquivo JSON.");
+            return;
+        }
+
+        try {
+            const text = await file.text();
+            handlers.onAnalyzeBackupImport(text);
+        } catch {
+            setBackupImportStatus("Não foi possível ler o arquivo JSON.");
+            setBackupImportActionsVisible(false);
+        }
+    });
+
+    getElement("btn-confirmar-backup").addEventListener("click", () => {
+        handlers.onConfirmBackupImport(getBackupImportMode());
+    });
+
+    getElement("btn-cancelar-backup").addEventListener("click", () => {
+        resetBackupImportPreview();
+        clearBackupImportFile();
+        handlers.onCancelBackupImport();
+    });
+}
+
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
@@ -816,6 +913,7 @@ export function connectEvents(handlers) {
     });
     getElement("btn-fechar-config").addEventListener("click", closeConfigModal);
     connectCatalogImportEvents(handlers);
+    connectBackupEvents(handlers);
     getElement("mostrar-zerados").addEventListener("change", () => {
         getElement("copiar-feedback").textContent = "";
         renderFinalReport();

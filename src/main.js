@@ -1,4 +1,12 @@
 import "./styles.css";
+import {
+    buildBackupPayload,
+    downloadBackup,
+    mergeCountingHistory,
+    normalizeBackupPayload,
+    parseBackupText,
+    previewBackupPayload
+} from "./backup.js";
 import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
 import { parseCatalogCsv } from "./csvImport.js";
@@ -10,8 +18,11 @@ import {
     loadCountingDraft,
     loadCountingHistory,
     loadLastFinalizedCount,
+    loadRelevantLocalStorageKeys,
+    saveBackupBeforeJsonImport,
     saveCatalogBackupBeforeImport,
     saveCatalog,
+    saveCountingHistory,
     saveCountingDraft
 } from "./storage.js";
 import {
@@ -26,9 +37,12 @@ import {
     renderLastFinalizedNotice,
     renderCatalogImportPreview,
     resetCatalogImportPreview,
+    resetBackupImportPreview,
+    renderBackupImportPreview,
     showHistoryDetail,
     showHistoryList,
     showFinalSummary,
+    showBackupImportStatus,
     showCatalogImportStatus,
     updateConfigList
 } from "./ui.js";
@@ -38,6 +52,7 @@ const counting = createCounting(catalog.listItems, loadCountingDraft());
 let lastFinalizedCount = loadLastFinalizedCount();
 let isCountingVisible = false;
 let pendingCatalogImport = null;
+let pendingBackupImport = null;
 
 saveCatalog(catalog.listItems());
 
@@ -142,6 +157,99 @@ function applyCatalogImport(mode) {
 
 function cancelCatalogImport() {
     pendingCatalogImport = null;
+}
+
+function createCurrentBackupPayload() {
+    return buildBackupPayload({
+        catalogItems: catalog.listItems(),
+        countingHistory: loadCountingHistory(),
+        lastFinalizedCount: loadLastFinalizedCount(),
+        localStorageKeys: loadRelevantLocalStorageKeys()
+    });
+}
+
+function exportBackup() {
+    downloadBackup(createCurrentBackupPayload());
+    showBackupImportStatus("Backup exportado.");
+}
+
+function analyzeBackupImport(jsonText) {
+    const parsed = parseBackupText(jsonText);
+
+    if (parsed.error) {
+        pendingBackupImport = null;
+        renderBackupImportPreview({ isValid: false, error: parsed.error });
+        return;
+    }
+
+    const preview = previewBackupPayload(parsed.payload);
+
+    if (!preview.isValid) {
+        pendingBackupImport = null;
+        renderBackupImportPreview(preview);
+        return;
+    }
+
+    pendingBackupImport = normalizeBackupPayload(parsed.payload);
+    renderBackupImportPreview(preview);
+}
+
+function confirmActiveDraftRisk(mode) {
+    if (mode === "merge-history" || !counting.hasSession()) {
+        return true;
+    }
+
+    return window.confirm(
+        "Existe uma contagem em andamento. Importar este backup pode trocar o catálogo usado no app. Deseja continuar?"
+    );
+}
+
+function confirmBackupImportMode(mode) {
+    if (mode === "replace-all") {
+        return window.confirm(
+            "Substituir catálogo e histórico locais pelo backup? Um backup interno do estado atual será salvo antes."
+        );
+    }
+
+    if (mode === "replace-catalog") {
+        return window.confirm(
+            "Substituir apenas o catálogo local pelo catálogo do backup? O histórico atual será mantido."
+        );
+    }
+
+    return true;
+}
+
+function applyBackupImport(mode) {
+    if (!pendingBackupImport) {
+        showBackupImportStatus("Analise um backup válido antes de importar.");
+        return;
+    }
+
+    if (!confirmActiveDraftRisk(mode) || !confirmBackupImportMode(mode)) {
+        return;
+    }
+
+    saveBackupBeforeJsonImport(createCurrentBackupPayload());
+
+    if (mode === "replace-all") {
+        saveCatalog(catalog.replaceItems(pendingBackupImport.catalogItems));
+        saveCountingHistory(pendingBackupImport.countingHistory);
+    } else if (mode === "replace-catalog") {
+        saveCatalog(catalog.replaceItems(pendingBackupImport.catalogItems));
+    } else {
+        saveCountingHistory(mergeCountingHistory(loadCountingHistory(), pendingBackupImport.countingHistory));
+    }
+
+    lastFinalizedCount = loadLastFinalizedCount();
+    pendingBackupImport = null;
+    refreshConfigList();
+    resetBackupImportPreview();
+    showBackupImportStatus("Backup importado com sucesso.");
+}
+
+function cancelBackupImport() {
+    pendingBackupImport = null;
 }
 
 function saveCountingState() {
@@ -356,6 +464,10 @@ connectEvents({
     onAnalyzeCatalogImport: analyzeCatalogImport,
     onConfirmCatalogImport: applyCatalogImport,
     onCancelCatalogImport: cancelCatalogImport,
+    onExportBackup: exportBackup,
+    onAnalyzeBackupImport: analyzeBackupImport,
+    onConfirmBackupImport: applyBackupImport,
+    onCancelBackupImport: cancelBackupImport,
     onRestartCounting: restartCounting
 });
 

@@ -373,36 +373,43 @@ select {
     margin-top: var(--space-3);
 }
 
-.catalog-import {
+.catalog-import,
+.backup-section {
     margin-top: var(--space-5);
     padding-top: var(--space-4);
     border-top: 1px solid var(--color-border);
 }
 
-.catalog-import h3 {
+.catalog-import h3,
+.backup-section h3 {
     margin: 0 0 var(--space-2);
     font-size: 1.05rem;
 }
 
 .catalog-import p,
-.catalog-import-status {
+.catalog-import-status,
+.backup-section p,
+.backup-import-status {
     color: var(--color-text-muted);
     font-size: 0.95rem;
 }
 
-.catalog-import input[type="file"] {
+.catalog-import input[type="file"],
+.backup-section input[type="file"] {
     margin-top: var(--space-3);
     background-color: var(--color-surface-raised);
     color: var(--color-text);
 }
 
-.catalog-import-modes {
+.catalog-import-modes,
+.backup-import-modes {
     display: grid;
     gap: var(--space-2);
     margin: var(--space-3) 0;
 }
 
-.catalog-import-modes label {
+.catalog-import-modes label,
+.backup-import-modes label {
     display: flex;
     gap: var(--space-2);
     align-items: flex-start;
@@ -413,31 +420,36 @@ select {
     cursor: pointer;
 }
 
-.catalog-import-modes input {
+.catalog-import-modes input,
+.backup-import-modes input {
     width: 20px;
     min-height: 20px;
     margin: 2px 0 0;
     flex: 0 0 auto;
 }
 
-.catalog-import-status {
+.catalog-import-status,
+.backup-import-status {
     min-height: 1.4em;
     margin-top: var(--space-3);
 }
 
-.catalog-import-preview {
+.catalog-import-preview,
+.backup-import-preview {
     margin-top: var(--space-3);
 }
 
 .catalog-import-warnings,
-.catalog-import-list {
+.catalog-import-list,
+.backup-preview-list {
     margin: 0 0 var(--space-3);
     padding: 0;
     list-style: none;
 }
 
 .catalog-import-warnings li,
-.catalog-import-item {
+.catalog-import-item,
+.backup-preview-list li {
     margin-bottom: var(--space-2);
     padding: var(--space-3);
     background-color: var(--color-surface-raised);
@@ -469,13 +481,23 @@ select {
     gap: var(--space-3);
 }
 
-.catalog-import-actions[hidden] {
+.backup-import-actions {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.catalog-import-actions[hidden],
+.backup-import-actions[hidden] {
     display: none;
 }
 
 #btn-analisar-csv,
 #btn-confirmar-importacao,
-#btn-cancelar-importacao {
+#btn-cancelar-importacao,
+#btn-exportar-backup,
+#btn-analisar-backup,
+#btn-confirmar-backup,
+#btn-cancelar-backup {
     margin-top: var(--space-3);
 }
 

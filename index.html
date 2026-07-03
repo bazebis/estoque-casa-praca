@@ -83,6 +83,34 @@
                 </div>
             </section>
 
+            <section class="backup-section">
+                <h3>Backup</h3>
+                <p>Exporta e importa dados locais do app, incluindo catálogo, histórico e chaves internas relevantes.</p>
+                <button id="btn-exportar-backup">Exportar backup</button>
+                <input type="file" id="backup-import-file" accept=".json,application/json">
+                <div class="backup-import-modes" role="radiogroup" aria-label="Modo de importação do backup">
+                    <label>
+                        <input type="radio" name="backup-import-mode" value="merge-history" checked>
+                        Mesclar histórico e manter catálogo atual
+                    </label>
+                    <label>
+                        <input type="radio" name="backup-import-mode" value="replace-catalog">
+                        Substituir apenas catálogo
+                    </label>
+                    <label>
+                        <input type="radio" name="backup-import-mode" value="replace-all">
+                        Substituir dados locais
+                    </label>
+                </div>
+                <button id="btn-analisar-backup">Analisar backup</button>
+                <div id="backup-import-status" class="backup-import-status" aria-live="polite"></div>
+                <div id="backup-import-preview" class="backup-import-preview"></div>
+                <div id="backup-import-actions" class="backup-import-actions" hidden>
+                    <button id="btn-confirmar-backup">Confirmar importação do backup</button>
+                    <button id="btn-cancelar-backup">Cancelar importação</button>
+                </div>
+            </section>
+
             <button id="btn-fechar-config">Fechar</button>
         </div>
     </div>

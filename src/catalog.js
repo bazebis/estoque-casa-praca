@@ -134,6 +134,11 @@ export function createCatalog(initialItems) {
         return listItems();
     }
 
+    function replaceItems(nextItems) {
+        items = normalizeItems(nextItems);
+        return listItems();
+    }
+
     function appendImportedItems(importedItems) {
         const newItems = importedItems
             .map((importedItem, index) => createImportedItem(importedItem, items.length + index))
@@ -171,6 +176,7 @@ export function createCatalog(initialItems) {
         deleteItem,
         updateItem,
         reorderItems,
+        replaceItems,
         replaceWithImportedItems,
         appendImportedItems,
         upsertImportedItems

@@ -5,6 +5,7 @@ const catalogStorageKey = "itensEstoque";
 const countingDraftStorageKey = "countingDraft";
 const countingHistoryStorageKey = "countingHistory";
 const catalogBackupBeforeImportStorageKey = "catalogBackupBeforeImport";
+const backupBeforeJsonImportStorageKey = "backupBeforeJsonImport";
 
 function readJson(storageKey) {
     const storedValue = localStorage.getItem(storageKey);
@@ -41,6 +42,13 @@ export function saveCatalogBackupBeforeImport(items) {
     };
 
     localStorage.setItem(catalogBackupBeforeImportStorageKey, JSON.stringify(backup));
+}
+
+export function loadRelevantLocalStorageKeys() {
+    return {
+        catalogBackupBeforeImport: readJson(catalogBackupBeforeImportStorageKey),
+        backupBeforeJsonImport: readJson(backupBeforeJsonImportStorageKey)
+    };
 }
 
 export function loadCountingDraft() {
@@ -95,4 +103,13 @@ export function addCountHistoryEntry(entry) {
 
 export function loadLastFinalizedCount() {
     return loadCountingHistory()[0] || null;
+}
+
+export function saveBackupBeforeJsonImport(state) {
+    const backup = {
+        createdAt: new Date().toISOString(),
+        state
+    };
+
+    localStorage.setItem(backupBeforeJsonImportStorageKey, JSON.stringify(backup));
 }
