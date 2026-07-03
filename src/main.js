@@ -21,7 +21,7 @@ function finishCounting() {
 }
 
 function refreshConfigList() {
-    updateConfigList(catalog.listItems(), deleteItem);
+    updateConfigList(catalog.listItems(), catalogHandlers);
 }
 
 function addItem(item) {
@@ -38,9 +38,38 @@ function addItem(item) {
     return true;
 }
 
-function deleteItem(index) {
-    const items = catalog.deleteItem(index);
+function updateItem(itemId, values) {
+    const previousItem = catalog.listItems().find((item) => item.id === itemId);
+    const items = catalog.updateItem(itemId, values);
+    const currentItem = items.find((item) => item.id === itemId);
+    const wasUpdated = Boolean(
+        previousItem &&
+        currentItem &&
+        (previousItem.name !== currentItem.name || previousItem.unitId !== currentItem.unitId)
+    );
+
+    if (!wasUpdated) {
+        return false;
+    }
+
     saveCatalog(items);
+    refreshConfigList();
+    return true;
+}
+
+function deleteItem(itemId) {
+    const item = catalog.listItems().find((catalogItem) => catalogItem.id === itemId);
+
+    if (!item || !window.confirm(`Excluir ${item.name}?`)) {
+        return;
+    }
+
+    saveCatalog(catalog.deleteItem(itemId));
+    refreshConfigList();
+}
+
+function reorderItems(orderedIds) {
+    saveCatalog(catalog.reorderItems(orderedIds));
     refreshConfigList();
 }
 
@@ -53,8 +82,15 @@ function confirmQuantity(quantity) {
 }
 
 function openCatalogConfig() {
-    openConfigModal(catalog.listItems(), deleteItem);
+    openConfigModal(catalog.listItems(), catalogHandlers);
 }
+
+const catalogHandlers = {
+    getItems: catalog.listItems,
+    onDeleteItem: deleteItem,
+    onUpdateItem: updateItem,
+    onReorderItems: reorderItems
+};
 
 connectEvents({
     onStartCounting: startCounting,

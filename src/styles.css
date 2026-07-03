@@ -122,19 +122,81 @@ button:hover {
     overflow-y: auto;
 }
 
-#lista-config li {
+#lista-config .catalog-item {
     display: flex;
-    justify-content: space-between;
+    gap: 10px;
     align-items: center;
     padding: 10px;
     background-color: #444;
     margin-bottom: 5px;
     border-radius: 5px;
+    text-align: left;
 }
 
-#lista-config button {
+.catalog-item-content {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.catalog-item-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.catalog-drag-handle,
+.catalog-action-button {
     width: auto;
-    padding: 5px 10px;
-    margin-left: 5px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 10px;
+    margin: 0;
     font-size: 0.8em;
+}
+
+.catalog-drag-handle {
+    cursor: grab;
+    touch-action: none;
+}
+
+.catalog-danger-button {
+    background-color: #6b3333;
+}
+
+.catalog-edit-form {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    flex: 1;
+}
+
+.catalog-edit-form input,
+.catalog-edit-form select {
+    margin: 0;
+}
+
+.catalog-item.is-dragging {
+    opacity: 0.75;
+    outline: 2px solid #999;
+}
+
+@media (max-width: 520px) {
+    .modal-content {
+        margin: 5% auto;
+        width: 88%;
+    }
+
+    #lista-config .catalog-item {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .catalog-item-actions {
+        width: 100%;
+    }
+
+    .catalog-item-actions .catalog-action-button {
+        flex: 1;
+    }
 }

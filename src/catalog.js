@@ -63,17 +63,43 @@ export function createCatalog(initialItems) {
         return listItems();
     }
 
-    function deleteItem(index) {
-        items.splice(index, 1);
+    function deleteItem(itemId) {
+        items = items.filter((item) => item.id !== itemId);
         items = items.map((item, itemIndex) => ({ ...item, order: itemIndex }));
         return listItems();
     }
 
-    function updateItem() {
+    function updateItem(itemId, values) {
+        const name = String(values.name || values.nome || "").trim();
+        const rawUnit = values.unitId || values.unidade;
+
+        if (!name || !rawUnit) {
+            return listItems();
+        }
+
+        const unitId = normalizeUnitId(rawUnit);
+        items = items.map((item) => {
+            if (item.id !== itemId) {
+                return item;
+            }
+
+            return { ...item, name, unitId };
+        });
+
         return listItems();
     }
 
-    function reorderItems() {
+    function reorderItems(orderedIds) {
+        const orderById = new Map(orderedIds.map((itemId, index) => [itemId, index]));
+
+        items = items
+            .map((item) => ({
+                ...item,
+                order: orderById.has(item.id) ? orderById.get(item.id) : item.order
+            }))
+            .sort(sortByOrder)
+            .map((item, index) => ({ ...item, order: index }));
+
         return listItems();
     }
 
