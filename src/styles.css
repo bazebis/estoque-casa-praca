@@ -105,7 +105,8 @@ button:hover {
     color: #fff;
 }
 
-.modal-content input {
+.modal-content input,
+.modal-content select {
     width: 100%;
     padding: 10px;
     margin: 10px 0;

@@ -1,3 +1,5 @@
+import { formatQuantity, getUnitById, getUnits } from "./units.js";
+
 function getElement(id) {
     return document.getElementById(id);
 }
@@ -17,8 +19,8 @@ function clearNewItemInputs() {
 
 function getNewItemFormValues() {
     return {
-        nome: getElement("novo-item-nome").value.trim(),
-        unidade: getElement("novo-item-unidade").value.trim()
+        name: getElement("novo-item-nome").value.trim(),
+        unitId: getElement("novo-item-unidade").value
     };
 }
 
@@ -34,10 +36,29 @@ function buildFinalMessage(items) {
     let message = "Itens em Estoque:\n";
 
     items.forEach((item) => {
-        message += `- ${item.nome}: ${item.qtd} ${item.unidade}\n`;
+        message += `- ${item.name}: ${formatQuantity(item.qtd, item.unitId)}\n`;
     });
 
     return message;
+}
+
+export function renderUnitOptions() {
+    const unitSelect = getElement("novo-item-unidade");
+    unitSelect.innerHTML = "";
+
+    const placeholderOption = document.createElement("option");
+    placeholderOption.value = "";
+    placeholderOption.textContent = "Selecione a unidade...";
+    placeholderOption.disabled = true;
+    placeholderOption.selected = true;
+    unitSelect.appendChild(placeholderOption);
+
+    getUnits().forEach((unit) => {
+        const option = document.createElement("option");
+        option.value = unit.id;
+        option.textContent = unit.label;
+        unitSelect.appendChild(option);
+    });
 }
 
 export function updateConfigList(items, onDeleteItem) {
@@ -45,7 +66,8 @@ export function updateConfigList(items, onDeleteItem) {
     list.innerHTML = "";
 
     items.forEach((item, index) => {
-        list.innerHTML += `<li>${item.nome} (${item.unidade}) 
+        const unit = getUnitById(item.unitId);
+        list.innerHTML += `<li>${item.name} — ${unit.label} 
             <button data-index="${index}" class="btn-excluir-item">🗑️</button></li>`;
     });
 
@@ -62,7 +84,7 @@ export function showCurrentItem(item, onFinishCounting) {
         return;
     }
 
-    getElement("modal-mensagem").textContent = `Qtd de ${item.nome}:`;
+    getElement("modal-mensagem").textContent = `Qtd de ${item.name}:`;
     openModal("itemModal");
 }
 

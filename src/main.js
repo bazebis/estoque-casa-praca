@@ -5,6 +5,7 @@ import { loadCatalog, saveCatalog } from "./storage.js";
 import {
     connectEvents,
     openConfigModal,
+    renderUnitOptions,
     showCurrentItem,
     showFinalSummary,
     updateConfigList
@@ -12,6 +13,8 @@ import {
 
 const catalog = createCatalog(loadCatalog());
 const counting = createCounting(catalog.listItems);
+
+saveCatalog(catalog.listItems());
 
 function finishCounting() {
     showFinalSummary(counting.finishCounting());
@@ -61,3 +64,5 @@ connectEvents({
     onAddItem: addItem,
     onRestartCounting: counting.restartCounting
 });
+
+renderUnitOptions();
