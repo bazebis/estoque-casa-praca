@@ -126,8 +126,10 @@ function renderEditForm(item, handlers) {
     nameInput.type = "text";
     nameInput.value = item.name;
     nameInput.placeholder = "Nome do Item";
+    nameInput.setAttribute("aria-label", "Nome do item");
 
     const unitSelect = document.createElement("select");
+    unitSelect.setAttribute("aria-label", "Unidade do item");
     renderUnitSelect(unitSelect, item.unitId);
 
     const saveButton = createButton("Salvar", "catalog-action-button");
@@ -255,9 +257,11 @@ function renderCountingForm(card, viewModel, handlers) {
     quantityInput.step = "any";
     quantityInput.placeholder = "Quantidade";
     quantityInput.className = "counting-input";
+    quantityInput.setAttribute("aria-label", "Quantidade da entrada");
 
     const unitSelect = document.createElement("select");
     unitSelect.className = "counting-select";
+    unitSelect.setAttribute("aria-label", "Unidade da entrada");
     renderCompatibleUnitSelect(unitSelect, viewModel.defaultUnitId, viewModel.baseUnit);
 
     const addButton = createButton("+ Adicionar entrada", "counting-primary-button");
