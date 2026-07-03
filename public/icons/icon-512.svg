@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Estoque Casa da Praça">
+    <rect width="512" height="512" rx="96" fill="#111111"/>
+    <rect x="96" y="136" width="320" height="264" rx="34" fill="#f2f2f2"/>
+    <path d="M144 136h224l-40-56H184z" fill="#d7d7d7"/>
+    <path d="M168 210h176M168 264h176M168 318h112" fill="none" stroke="#111111" stroke-width="26" stroke-linecap="round"/>
+    <circle cx="344" cy="320" r="28" fill="#111111"/>
+</svg>

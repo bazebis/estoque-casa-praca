@@ -11,6 +11,7 @@ import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
 import { parseCatalogCsv } from "./csvImport.js";
 import { createHistoryEntry } from "./history.js";
+import { registerPwa } from "./pwa.js";
 import {
     addCountHistoryEntry,
     clearCountingDraft,
@@ -60,6 +61,8 @@ import {
     showUnitsFeedback,
     updateConfigList
 } from "./ui.js";
+
+registerPwa();
 
 const storageStatus = await initializeStorage();
 renderStorageStatusNotice(storageStatus || getStorageStatus());
