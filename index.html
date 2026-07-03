@@ -56,6 +56,19 @@
             <select id="novo-item-unidade" required></select>
             <button id="btn-adicionar-item">Adicionar Item</button>
 
+            <section class="units-section">
+                <h3>Unidades</h3>
+                <p>Unidades padrão são fixas. Unidades personalizadas podem ser editadas ou desativadas.</p>
+                <ul id="lista-unidades"></ul>
+                <div class="unit-form">
+                    <input type="text" id="nova-unidade-label" placeholder="Nome da unidade">
+                    <select id="nova-unidade-base" aria-label="Unidade base"></select>
+                    <input type="number" id="nova-unidade-factor" min="0" step="any" placeholder="Fator">
+                    <button id="btn-adicionar-unidade">Adicionar unidade</button>
+                </div>
+                <p id="unidades-feedback" class="units-feedback" aria-live="polite"></p>
+            </section>
+
             <section class="catalog-import">
                 <h3>Importar catálogo</h3>
                 <p>CSV com cabeçalho e colunas nome e unidade. Também aceita separador ponto e vírgula.</p>

@@ -1,7 +1,8 @@
-import { getUnitById, getUnits } from "./units.js";
+import { getActiveUnits, getAllUnits, getBaseUnits, getUnitById, resolveUnitSnapshot } from "./units.js";
 import { buildCountReport } from "./report.js";
 
 let editingItemId = null;
+let editingUnitId = null;
 let finalReportSummaries = [];
 let finalReportDate = null;
 
@@ -44,10 +45,24 @@ function clearNewItemInputs() {
     getElement("novo-item-unidade").value = "";
 }
 
+function clearNewUnitInputs() {
+    getElement("nova-unidade-label").value = "";
+    getElement("nova-unidade-base").value = "un";
+    getElement("nova-unidade-factor").value = "";
+}
+
 function getNewItemFormValues() {
     return {
         name: getElement("novo-item-nome").value.trim(),
         unitId: getElement("novo-item-unidade").value
+    };
+}
+
+function getNewUnitFormValues() {
+    return {
+        label: getElement("nova-unidade-label").value.trim(),
+        baseUnit: getElement("nova-unidade-base").value,
+        factor: getElement("nova-unidade-factor").value
     };
 }
 
@@ -86,9 +101,17 @@ function setBackupImportActionsVisible(isVisible) {
 function createUnitOption(unit, selectedUnitId) {
     const option = document.createElement("option");
     option.value = unit.id;
-    option.textContent = unit.label;
+    option.textContent = unit.active === false ? `${unit.label} (inativa)` : unit.label;
     option.selected = unit.id === selectedUnitId;
     return option;
+}
+
+function getSelectableUnits(selectedUnitId = "") {
+    const activeUnits = getActiveUnits();
+    const selectedUnit = selectedUnitId ? getUnitById(selectedUnitId) : null;
+    const shouldIncludeSelectedUnit = selectedUnitId && !activeUnits.some((unit) => unit.id === selectedUnitId);
+
+    return shouldIncludeSelectedUnit ? [...activeUnits, selectedUnit] : activeUnits;
 }
 
 function renderUnitSelect(selectElement, selectedUnitId = "", includePlaceholder = true) {
@@ -103,19 +126,35 @@ function renderUnitSelect(selectElement, selectedUnitId = "", includePlaceholder
         selectElement.appendChild(placeholderOption);
     }
 
-    getUnits().forEach((unit) => {
+    getSelectableUnits(selectedUnitId).forEach((unit) => {
         selectElement.appendChild(createUnitOption(unit, selectedUnitId));
     });
 }
 
 function renderCompatibleUnitSelect(selectElement, selectedUnitId, baseUnit) {
     selectElement.innerHTML = "";
+    const selectedUnit = getUnitById(selectedUnitId);
+    const compatibleActiveUnits = getActiveUnits().filter((unit) => unit.baseUnit === baseUnit);
+    const units = compatibleActiveUnits.length > 0
+        ? compatibleActiveUnits
+        : [selectedUnit].filter((unit) => unit.baseUnit === baseUnit);
+    const selectedActiveUnitId = selectedUnit.active === false ? units[0]?.id : selectedUnitId;
 
-    getUnits()
-        .filter((unit) => unit.baseUnit === baseUnit)
-        .forEach((unit) => {
-            selectElement.appendChild(createUnitOption(unit, selectedUnitId));
-        });
+    units.forEach((unit) => {
+        selectElement.appendChild(createUnitOption(unit, selectedActiveUnitId));
+    });
+}
+
+function renderBaseUnitSelect(selectElement, selectedBaseUnit = "un") {
+    selectElement.innerHTML = "";
+
+    getBaseUnits().forEach((baseUnit) => {
+        const option = document.createElement("option");
+        option.value = baseUnit;
+        option.textContent = baseUnit;
+        option.selected = baseUnit === selectedBaseUnit;
+        selectElement.appendChild(option);
+    });
 }
 
 function createButton(text, className) {
@@ -138,14 +177,23 @@ function createDragHandle() {
 function renderItemContent(item) {
     const content = document.createElement("div");
     content.className = "catalog-item-content";
+    const itemUnit = getUnitById(item.unitId);
 
     const name = document.createElement("strong");
     name.textContent = item.name;
 
     const unit = document.createElement("span");
-    unit.textContent = ` — ${getUnitById(item.unitId).label}`;
+    unit.textContent = ` — ${itemUnit.label}`;
 
     content.append(name, unit);
+
+    if (itemUnit.active === false) {
+        const warning = document.createElement("small");
+        warning.className = "unit-warning";
+        warning.textContent = "Unidade inativa";
+        content.appendChild(warning);
+    }
+
     return content;
 }
 
@@ -206,6 +254,136 @@ function saveEditedItem(itemId, nameInput, unitSelect, handlers) {
 
     editingItemId = null;
     updateConfigList(handlers.getItems(), handlers);
+}
+
+function setUnitsFeedback(message) {
+    getElement("unidades-feedback").textContent = message;
+}
+
+function createUnitStatusText(unit) {
+    const type = unit.custom ? "Personalizada" : "Padrão";
+    const status = unit.active === false ? "Inativa" : "Ativa";
+
+    return `${unit.baseUnit} | fator ${formatNumber(unit.factor)} | ${type} | ${status}`;
+}
+
+function renderUnitReadOnlyContent(unit) {
+    const content = document.createElement("div");
+    content.className = "unit-item-content";
+
+    const label = document.createElement("strong");
+    label.textContent = unit.label;
+
+    const meta = document.createElement("span");
+    meta.textContent = createUnitStatusText(unit);
+
+    content.append(label, meta);
+    return content;
+}
+
+function renderUnitActions(unit, handlers) {
+    const actions = document.createElement("div");
+    actions.className = "unit-item-actions";
+
+    if (!unit.custom) {
+        const badge = document.createElement("span");
+        badge.className = "unit-system-badge";
+        badge.textContent = "Sistema";
+        actions.appendChild(badge);
+        return actions;
+    }
+
+    const editButton = createButton("Editar", "catalog-action-button");
+    editButton.addEventListener("click", () => {
+        editingUnitId = unit.id;
+        renderUnitsList(handlers.getUnits(), handlers);
+    });
+
+    const toggleButton = createButton(
+        unit.active === false ? "Ativar" : "Desativar",
+        unit.active === false ? "catalog-action-button" : "catalog-action-button catalog-danger-button"
+    );
+    toggleButton.addEventListener("click", () => {
+        handlers.onToggleUnit(unit.id, unit.active === false);
+    });
+
+    actions.append(editButton, toggleButton);
+    return actions;
+}
+
+function renderUnitEditForm(unit, handlers) {
+    const form = document.createElement("div");
+    form.className = "unit-edit-form";
+
+    const labelInput = document.createElement("input");
+    labelInput.type = "text";
+    labelInput.value = unit.label;
+    labelInput.placeholder = "Nome da unidade";
+    labelInput.setAttribute("aria-label", "Nome da unidade");
+
+    const baseSelect = document.createElement("select");
+    baseSelect.setAttribute("aria-label", "Unidade base");
+    renderBaseUnitSelect(baseSelect, unit.baseUnit);
+
+    const factorInput = document.createElement("input");
+    factorInput.type = "number";
+    factorInput.min = "0";
+    factorInput.step = "any";
+    factorInput.value = unit.factor;
+    factorInput.placeholder = "Fator";
+    factorInput.setAttribute("aria-label", "Fator da unidade");
+
+    const activeLabel = document.createElement("label");
+    activeLabel.className = "unit-active-toggle";
+
+    const activeInput = document.createElement("input");
+    activeInput.type = "checkbox";
+    activeInput.checked = unit.active !== false;
+    activeLabel.append(activeInput, "Ativa");
+
+    const saveButton = createButton("Salvar", "catalog-action-button");
+    saveButton.addEventListener("click", () => {
+        const wasSaved = handlers.onUpdateUnit(unit.id, {
+            label: labelInput.value.trim(),
+            baseUnit: baseSelect.value,
+            factor: factorInput.value,
+            active: activeInput.checked
+        });
+
+        if (!wasSaved) {
+            return;
+        }
+
+        editingUnitId = null;
+        renderUnitsList(handlers.getUnits(), handlers);
+    });
+
+    const cancelButton = createButton("Cancelar", "catalog-action-button");
+    cancelButton.addEventListener("click", () => {
+        editingUnitId = null;
+        renderUnitsList(handlers.getUnits(), handlers);
+    });
+
+    form.append(labelInput, baseSelect, factorInput, activeLabel, saveButton, cancelButton);
+    return form;
+}
+
+export function renderUnitsList(units, handlers) {
+    const list = getElement("lista-unidades");
+    list.innerHTML = "";
+
+    units.forEach((unit) => {
+        const listItem = document.createElement("li");
+        listItem.className = unit.custom ? "unit-item" : "unit-item unit-item-system";
+
+        if (unit.id === editingUnitId && unit.custom) {
+            listItem.appendChild(renderUnitEditForm(unit, handlers));
+        } else {
+            listItem.append(renderUnitReadOnlyContent(unit), renderUnitActions(unit, handlers));
+        }
+
+        list.appendChild(listItem);
+    });
 }
 
 function setupPointerReorder(list, handlers) {
@@ -270,9 +448,10 @@ function renderEntryList(entries, handlers) {
     entries.forEach((entry) => {
         const item = document.createElement("li");
         item.className = "counting-entry-item";
+        const unit = resolveUnitSnapshot(entry.unitId, entry.unitSnapshot);
 
         const text = document.createElement("span");
-        text.textContent = `${formatNumber(entry.quantity)} ${getUnitById(entry.unitId).label}`;
+        text.textContent = `${formatNumber(entry.quantity)} ${unit.unitLabel}`;
 
         const removeButton = createButton("Remover", "counting-secondary-button counting-remove-button");
         removeButton.addEventListener("click", () => handlers.onRemoveEntry(entry.id));
@@ -542,6 +721,11 @@ function renderHistoryList(container, history, handlers) {
 
 export function renderUnitOptions() {
     renderUnitSelect(getElement("novo-item-unidade"));
+    renderBaseUnitSelect(getElement("nova-unidade-base"));
+}
+
+export function showUnitsFeedback(message) {
+    setUnitsFeedback(message);
 }
 
 export function resetCatalogImportPreview() {
@@ -608,6 +792,7 @@ export function renderBackupImportPreview(preview) {
         `Schema: ${preview.schemaVersion}`,
         `Itens no catálogo: ${preview.catalogCount}`,
         `Contagens no histórico: ${preview.historyCount}`,
+        `Unidades personalizadas: ${preview.customUnitsCount || 0}`,
         `Rascunho no arquivo: ${preview.hasDraft ? "sim" : "não"}`
     ].forEach((text) => {
         const item = document.createElement("li");
@@ -815,13 +1000,15 @@ export function showFinalSummary(summaries, generatedAt = new Date()) {
     getElement("lista-final").style.display = "block";
 }
 
-export function openConfigModal(items, handlers) {
+export function openConfigModal(items, handlers, unitHandlers) {
     openModal("configModal");
     updateConfigList(items, handlers);
+    renderUnitsList(unitHandlers.getUnits(), unitHandlers);
 }
 
 export function closeConfigModal() {
     editingItemId = null;
+    editingUnitId = null;
     closeModal("configModal");
 }
 
@@ -899,6 +1086,16 @@ function connectBackupEvents(handlers) {
     });
 }
 
+function connectUnitEvents(handlers) {
+    getElement("btn-adicionar-unidade").addEventListener("click", () => {
+        const wasAdded = handlers.onAddUnit(getNewUnitFormValues());
+
+        if (wasAdded) {
+            clearNewUnitInputs();
+        }
+    });
+}
+
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
@@ -914,6 +1111,7 @@ export function connectEvents(handlers) {
     getElement("btn-fechar-config").addEventListener("click", closeConfigModal);
     connectCatalogImportEvents(handlers);
     connectBackupEvents(handlers);
+    connectUnitEvents(handlers);
     getElement("mostrar-zerados").addEventListener("change", () => {
         getElement("copiar-feedback").textContent = "";
         renderFinalReport();

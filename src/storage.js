@@ -1,11 +1,13 @@
 import { initialCatalogItems } from "./seed.js";
 import { normalizeHistoryEntry } from "./history.js";
+import { normalizeCustomUnits } from "./units.js";
 
 const catalogStorageKey = "itensEstoque";
 const countingDraftStorageKey = "countingDraft";
 const countingHistoryStorageKey = "countingHistory";
 const catalogBackupBeforeImportStorageKey = "catalogBackupBeforeImport";
 const backupBeforeJsonImportStorageKey = "backupBeforeJsonImport";
+const customUnitsStorageKey = "customUnits";
 
 function readJson(storageKey) {
     const storedValue = localStorage.getItem(storageKey);
@@ -49,6 +51,17 @@ export function loadRelevantLocalStorageKeys() {
         catalogBackupBeforeImport: readJson(catalogBackupBeforeImportStorageKey),
         backupBeforeJsonImport: readJson(backupBeforeJsonImportStorageKey)
     };
+}
+
+export function loadCustomUnits() {
+    return normalizeCustomUnits(readJson(customUnitsStorageKey));
+}
+
+export function saveCustomUnits(units) {
+    const normalizedUnits = normalizeCustomUnits(units);
+
+    localStorage.setItem(customUnitsStorageKey, JSON.stringify(normalizedUnits));
+    return normalizedUnits;
 }
 
 export function loadCountingDraft() {

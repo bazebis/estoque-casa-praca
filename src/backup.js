@@ -1,4 +1,5 @@
 import { normalizeHistoryEntry } from "./history.js";
+import { normalizeCustomUnits } from "./units.js";
 
 const appName = "estoque-casa-praca";
 const schemaVersion = 1;
@@ -47,6 +48,10 @@ function getBackupHistory(payload) {
     return payload.countingHistory || payload.finalizedCounts || [];
 }
 
+function getBackupCustomUnits(payload) {
+    return payload.customUnits || payload.units?.custom || [];
+}
+
 export function buildBackupPayload(data) {
     return {
         appName,
@@ -61,7 +66,7 @@ export function buildBackupPayload(data) {
         lastFinalizedCount: data.lastFinalizedCount ? clone(data.lastFinalizedCount) : null,
         countingDraft: null,
         includesActiveDraft: false,
-        customUnits: data.customUnits || null,
+        customUnits: clone(data.customUnits || []),
         localStorageKeys: clone(data.localStorageKeys || {})
     };
 }
@@ -114,7 +119,7 @@ export function normalizeBackupPayload(payload) {
         lastFinalizedCount: normalizeHistoryEntry(payload.lastFinalizedCount) || countingHistory[0] || null,
         countingDraft: payload.countingDraft || null,
         includesActiveDraft: Boolean(payload.countingDraft || payload.includesActiveDraft),
-        customUnits: payload.customUnits || null,
+        customUnits: normalizeCustomUnits(getBackupCustomUnits(payload)),
         localStorageKeys: payload.localStorageKeys || {}
     };
 }
@@ -159,6 +164,7 @@ export function previewBackupPayload(payload) {
         schemaVersion: normalizedPayload.schemaVersion,
         catalogCount: normalizedPayload.catalogItems.length,
         historyCount: normalizedPayload.countingHistory.length,
+        customUnitsCount: normalizedPayload.customUnits.length,
         hasDraft: normalizedPayload.includesActiveDraft
     };
 }

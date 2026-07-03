@@ -1,4 +1,4 @@
-import { convertToBase, getUnitById, normalizeUnitId } from "./units.js";
+import { convertToBase, createUnitSnapshot, getUnitById, normalizeUnitId, resolveUnitSnapshot } from "./units.js";
 
 function createEntryId() {
     if (globalThis.crypto?.randomUUID) {
@@ -58,7 +58,9 @@ function getEntriesForItem(session, itemId) {
 }
 
 function calculateItemTotal(entries) {
-    return entries.reduce((total, entry) => total + convertToBase(entry.quantity, entry.unitId), 0);
+    return entries.reduce((total, entry) => (
+        total + convertToBase(entry.quantity, entry.unitId, entry.unitSnapshot)
+    ), 0);
 }
 
 function getTimestampOrNow(value) {
@@ -72,7 +74,9 @@ function getTimestampOrNow(value) {
 }
 
 function summarizeItem(item, entries) {
-    const unit = getUnitById(item.unitId);
+    const unit = entries[0]?.unitSnapshot
+        ? resolveUnitSnapshot(entries[0].unitId, entries[0].unitSnapshot)
+        : getUnitById(item.unitId);
     const totalBase = calculateItemTotal(entries);
 
     return {
@@ -97,6 +101,7 @@ function normalizeSessionItem(item, index) {
 
 function normalizeSessionEntry(entry) {
     const quantity = Number(entry.quantity ?? entry.qtd);
+    const rawUnit = entry.unitId || entry.unidade || entry.unitSnapshot?.unitId;
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
         return null;
@@ -105,7 +110,10 @@ function normalizeSessionEntry(entry) {
     return {
         id: entry.id || createEntryId(),
         quantity,
-        unitId: normalizeUnitId(entry.unitId || entry.unidade),
+        unitId: normalizeUnitId(rawUnit),
+        unitSnapshot: entry.unitSnapshot
+            ? resolveUnitSnapshot(rawUnit, entry.unitSnapshot)
+            : null,
         createdAt: entry.createdAt || new Date().toISOString()
     };
 }
@@ -199,6 +207,7 @@ export function createCounting(getCatalogItems, initialDraft = null) {
                 id: createEntryId(),
                 quantity: numericQuantity,
                 unitId,
+                unitSnapshot: createUnitSnapshot(unitId),
                 createdAt: new Date().toISOString()
             }
         ];

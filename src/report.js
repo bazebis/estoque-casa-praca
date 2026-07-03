@@ -1,4 +1,4 @@
-import { getUnitById } from "./units.js";
+import { resolveUnitSnapshot } from "./units.js";
 
 function formatNumber(value) {
     const numericValue = Number(value);
@@ -28,9 +28,9 @@ export function shouldIncludeItem(summary, showZeroItems = false) {
 }
 
 export function formatEntryLine(entry) {
-    const unit = getUnitById(entry.unitId);
+    const unit = resolveUnitSnapshot(entry.unitId, entry.unitSnapshot);
 
-    return `- ${formatNumber(entry.quantity)} ${unit.label}`;
+    return `- ${formatNumber(entry.quantity)} ${unit.unitLabel}`;
 }
 
 export function formatTotalLine(summary) {
