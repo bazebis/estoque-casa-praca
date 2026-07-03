@@ -15,8 +15,13 @@ function sortActiveItems(items) {
 }
 
 function createEmptySession(items) {
+    const createdAt = new Date().toISOString();
+
     return {
         version: 1,
+        status: "em_andamento",
+        startedAt: createdAt,
+        updatedAt: createdAt,
         items: sortActiveItems(items),
         currentIndex: 0,
         entriesByItemId: {}
@@ -26,6 +31,7 @@ function createEmptySession(items) {
 function isValidSession(draft) {
     return Boolean(
         draft &&
+        draft.status !== "finalizada" &&
         Array.isArray(draft.items) &&
         Number.isInteger(draft.currentIndex) &&
         draft.entriesByItemId &&
@@ -53,6 +59,16 @@ function getEntriesForItem(session, itemId) {
 
 function calculateItemTotal(entries) {
     return entries.reduce((total, entry) => total + convertToBase(entry.quantity, entry.unitId), 0);
+}
+
+function getTimestampOrNow(value) {
+    const timestamp = new Date(value);
+
+    if (Number.isNaN(timestamp.getTime())) {
+        return new Date().toISOString();
+    }
+
+    return timestamp.toISOString();
 }
 
 function summarizeItem(item, entries) {
@@ -101,6 +117,7 @@ function sanitizeSession(draft) {
 
     const items = sortActiveItems(draft.items.map(normalizeSessionItem).filter((item) => item.name));
     const entriesByItemId = {};
+    const startedAt = getTimestampOrNow(draft.startedAt);
 
     items.forEach((item) => {
         entriesByItemId[item.id] = getEntriesForItem(draft, item.id)
@@ -110,6 +127,9 @@ function sanitizeSession(draft) {
 
     return {
         version: 1,
+        status: "em_andamento",
+        startedAt,
+        updatedAt: getTimestampOrNow(draft.updatedAt || startedAt),
         items,
         currentIndex: clampIndex(draft.currentIndex, items),
         entriesByItemId
@@ -125,6 +145,14 @@ export function createCounting(getCatalogItems, initialDraft = null) {
 
     function getDraft() {
         return session ? cloneSession(session) : null;
+    }
+
+    function touchSession() {
+        if (!session) {
+            return;
+        }
+
+        session.updatedAt = new Date().toISOString();
     }
 
     function startCounting() {
@@ -174,6 +202,7 @@ export function createCounting(getCatalogItems, initialDraft = null) {
                 createdAt: new Date().toISOString()
             }
         ];
+        touchSession();
 
         return true;
     }
@@ -187,6 +216,7 @@ export function createCounting(getCatalogItems, initialDraft = null) {
 
         session.entriesByItemId[currentItem.id] = getEntriesForItem(session, currentItem.id)
             .filter((entry) => entry.id !== entryId);
+        touchSession();
     }
 
     function goToPreviousItem() {
@@ -195,6 +225,7 @@ export function createCounting(getCatalogItems, initialDraft = null) {
         }
 
         session.currentIndex--;
+        touchSession();
         return getViewModel();
     }
 
@@ -204,6 +235,7 @@ export function createCounting(getCatalogItems, initialDraft = null) {
         }
 
         session.currentIndex++;
+        touchSession();
         return getViewModel();
     }
 

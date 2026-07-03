@@ -2,6 +2,7 @@ import { initialCatalogItems } from "./seed.js";
 
 const catalogStorageKey = "itensEstoque";
 const countingDraftStorageKey = "countingDraft";
+const countingHistoryStorageKey = "countingHistory";
 
 function readJson(storageKey) {
     const storedValue = localStorage.getItem(storageKey);
@@ -41,4 +42,25 @@ export function saveCountingDraft(draft) {
 
 export function clearCountingDraft() {
     localStorage.removeItem(countingDraftStorageKey);
+}
+
+export function loadCountingHistory() {
+    const storedHistory = readJson(countingHistoryStorageKey);
+
+    if (!Array.isArray(storedHistory)) {
+        return [];
+    }
+
+    return storedHistory.filter((entry) => entry?.status === "finalizada");
+}
+
+export function addCountHistoryEntry(entry) {
+    const history = loadCountingHistory();
+    const nextHistory = [entry, ...history];
+    localStorage.setItem(countingHistoryStorageKey, JSON.stringify(nextHistory));
+    return nextHistory;
+}
+
+export function loadLastFinalizedCount() {
+    return loadCountingHistory()[0] || null;
 }

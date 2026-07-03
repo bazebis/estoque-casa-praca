@@ -26,6 +26,19 @@ function formatNumber(value) {
     });
 }
 
+function formatDateTime(value) {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return "";
+    }
+
+    return date.toLocaleString("pt-BR", {
+        dateStyle: "short",
+        timeStyle: "short"
+    });
+}
+
 function clearNewItemInputs() {
     getElement("novo-item-nome").value = "";
     getElement("novo-item-unidade").value = "";
@@ -311,6 +324,49 @@ function renderFinalReport() {
     getElement("mensagem-whatsapp").textContent = message;
 }
 
+function createDraftDateText(draft) {
+    const startedAt = formatDateTime(draft?.startedAt);
+    const updatedAt = formatDateTime(draft?.updatedAt);
+
+    if (startedAt && updatedAt) {
+        return `Iniciada em ${startedAt}. Última atualização em ${updatedAt}.`;
+    }
+
+    if (startedAt) {
+        return `Iniciada em ${startedAt}.`;
+    }
+
+    if (updatedAt) {
+        return `Última atualização em ${updatedAt}.`;
+    }
+
+    return "Há uma contagem salva neste dispositivo.";
+}
+
+function createDraftNoticeActions(handlers) {
+    const actions = document.createElement("div");
+    actions.className = "draft-actions";
+
+    const continueButton = createButton("Continuar contagem", "draft-primary-button");
+    continueButton.addEventListener("click", handlers.onContinueDraft);
+
+    const discardButton = createButton("Descartar contagem", "draft-secondary-button draft-danger-button");
+    discardButton.addEventListener("click", handlers.onDiscardDraft);
+
+    actions.append(continueButton, discardButton);
+    return actions;
+}
+
+function createLastFinalizedDateText(finalizedCount) {
+    const finishedAt = formatDateTime(finalizedCount?.finishedAt);
+
+    if (finishedAt) {
+        return `Finalizada em ${finishedAt}.`;
+    }
+
+    return "Existe uma contagem finalizada salva neste dispositivo.";
+}
+
 function copyWithFallback(text) {
     const textarea = document.createElement("textarea");
     textarea.value = text;
@@ -344,6 +400,74 @@ async function copyFinalReport() {
 
 export function renderUnitOptions() {
     renderUnitSelect(getElement("novo-item-unidade"));
+}
+
+export function renderDraftNotice(draft, handlers) {
+    const container = getElement("rascunho-aviso");
+    container.innerHTML = "";
+    container.hidden = false;
+
+    const title = document.createElement("h2");
+    title.textContent = "Contagem em andamento";
+
+    const description = document.createElement("p");
+    description.textContent = createDraftDateText(draft);
+
+    container.append(title, description, createDraftNoticeActions(handlers));
+}
+
+export function hideDraftNotice() {
+    const container = getElement("rascunho-aviso");
+    container.innerHTML = "";
+    container.hidden = true;
+}
+
+export function renderLastFinalizedNotice(finalizedCount, handlers) {
+    const container = getElement("rascunho-aviso");
+    container.innerHTML = "";
+    container.hidden = false;
+
+    const title = document.createElement("h2");
+    title.textContent = "Última contagem finalizada";
+
+    const description = document.createElement("p");
+    description.textContent = createLastFinalizedDateText(finalizedCount);
+
+    const actions = document.createElement("div");
+    actions.className = "draft-actions";
+
+    const viewButton = createButton("Ver última contagem finalizada", "draft-secondary-button");
+    viewButton.addEventListener("click", handlers.onViewLastFinalized);
+
+    actions.appendChild(viewButton);
+    container.append(title, description, actions);
+}
+
+export function confirmStartWithDraft(handlers) {
+    const container = getElement("rascunho-aviso");
+    container.innerHTML = "";
+    container.hidden = false;
+
+    const title = document.createElement("h2");
+    title.textContent = "Já existe uma contagem em andamento";
+
+    const description = document.createElement("p");
+    description.textContent = "Escolha se deseja continuar a contagem salva ou descartá-la para iniciar uma nova.";
+
+    const actions = document.createElement("div");
+    actions.className = "draft-actions";
+
+    const continueButton = createButton("Continuar contagem atual", "draft-primary-button");
+    continueButton.addEventListener("click", handlers.onContinueDraft);
+
+    const startNewButton = createButton("Descartar e iniciar nova", "draft-secondary-button draft-danger-button");
+    startNewButton.addEventListener("click", handlers.onDiscardAndStartNew);
+
+    const cancelButton = createButton("Cancelar", "draft-secondary-button");
+    cancelButton.addEventListener("click", handlers.onCancel);
+
+    actions.append(continueButton, startNewButton, cancelButton);
+    container.append(title, description, actions);
 }
 
 export function updateConfigList(items, handlers) {
@@ -411,10 +535,11 @@ export function hideCountingView() {
     container.style.display = "none";
 }
 
-export function showFinalSummary(summaries) {
+export function showFinalSummary(summaries, generatedAt = new Date()) {
     finalReportSummaries = summaries;
-    finalReportDate = new Date();
+    finalReportDate = new Date(generatedAt);
     hideCountingView();
+    hideDraftNotice();
     getElement("mostrar-zerados").checked = false;
     getElement("copiar-feedback").textContent = "";
     renderFinalReport();

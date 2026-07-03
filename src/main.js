@@ -1,32 +1,78 @@
 import "./styles.css";
 import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
+import { buildCountReport } from "./report.js";
 import {
+    addCountHistoryEntry,
     clearCountingDraft,
     loadCatalog,
     loadCountingDraft,
+    loadLastFinalizedCount,
     saveCatalog,
     saveCountingDraft
 } from "./storage.js";
 import {
+    confirmStartWithDraft,
     connectEvents,
+    hideDraftNotice,
     openConfigModal,
     renderUnitOptions,
     renderCountingView,
+    renderDraftNotice,
+    renderLastFinalizedNotice,
     showFinalSummary,
     updateConfigList
 } from "./ui.js";
 
 const catalog = createCatalog(loadCatalog());
 const counting = createCounting(catalog.listItems, loadCountingDraft());
+let lastFinalizedCount = loadLastFinalizedCount();
+let isCountingVisible = false;
 
 saveCatalog(catalog.listItems());
 
+function createId(prefix) {
+    if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+
+    return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function createFinalizedCount(draft, summaries, finishedAt) {
+    const finishedAtIso = finishedAt.toISOString();
+
+    return {
+        id: createId("count"),
+        status: "finalizada",
+        startedAt: draft?.startedAt || finishedAtIso,
+        finishedAt: finishedAtIso,
+        items: draft?.items || summaries.map((summary) => summary.item),
+        entriesByItemId: draft?.entriesByItemId || {},
+        summaries: JSON.parse(JSON.stringify(summaries)),
+        reportText: buildCountReport(summaries, {
+            generatedAt: finishedAt,
+            showZeroItems: false
+        })
+    };
+}
+
 function finishCounting() {
+    const draft = counting.getDraft();
     const summaries = counting.finishCounting();
+    const finishedAt = new Date();
+
+    try {
+        lastFinalizedCount = addCountHistoryEntry(createFinalizedCount(draft, summaries, finishedAt))[0];
+    } catch {
+        alert("Não foi possível salvar a contagem finalizada. O rascunho foi mantido.");
+        return;
+    }
+
     counting.clearSession();
     clearCountingDraft();
-    showFinalSummary(summaries);
+    isCountingVisible = false;
+    showFinalSummary(summaries, finishedAt);
 }
 
 function refreshConfigList() {
@@ -83,13 +129,80 @@ function saveCountingState() {
 }
 
 function renderCountingState() {
+    hideDraftNotice();
+    isCountingVisible = true;
     renderCountingView(counting.getViewModel(), countingHandlers);
 }
 
 function startCounting() {
+    if (counting.hasSession()) {
+        confirmStartWithDraft(draftConflictHandlers);
+        return;
+    }
+
+    startNewCounting();
+}
+
+function startNewCounting() {
     counting.startCounting();
     saveCountingState();
     renderCountingState();
+}
+
+function renderInitialSavedState() {
+    if (counting.hasSession()) {
+        renderDraftNotice(counting.getDraft(), draftNoticeHandlers);
+        return;
+    }
+
+    if (lastFinalizedCount) {
+        renderLastFinalizedNotice(lastFinalizedCount, finalizedNoticeHandlers);
+    }
+}
+
+function continueDraft() {
+    if (!counting.hasSession()) {
+        return;
+    }
+
+    saveCountingState();
+    renderCountingState();
+}
+
+function discardDraft() {
+    const shouldDiscard = window.confirm("Descartar a contagem em andamento? O catálogo será mantido.");
+
+    if (!shouldDiscard) {
+        return;
+    }
+
+    counting.clearSession();
+    clearCountingDraft();
+    isCountingVisible = false;
+    hideDraftNotice();
+}
+
+function discardDraftAndStartNew() {
+    const shouldDiscard = window.confirm(
+        "Descartar a contagem em andamento e iniciar uma nova? As entradas salvas serão apagadas."
+    );
+
+    if (!shouldDiscard) {
+        return;
+    }
+
+    counting.clearSession();
+    clearCountingDraft();
+    startNewCounting();
+}
+
+function cancelDraftConflict() {
+    if (isCountingVisible) {
+        hideDraftNotice();
+        return;
+    }
+
+    renderDraftNotice(counting.getDraft(), draftNoticeHandlers);
 }
 
 function addCountingEntry(quantity, unitId) {
@@ -127,9 +240,25 @@ function openCatalogConfig() {
 }
 
 function restartCounting() {
+    const shouldRestart = window.confirm(
+        "Iniciar nova contagem? O relatório finalizado continuará salvo, mas a tela atual será fechada."
+    );
+
+    if (!shouldRestart) {
+        return;
+    }
+
     counting.clearSession();
     clearCountingDraft();
-    location.reload();
+    startNewCounting();
+}
+
+function viewLastFinalizedCount() {
+    if (!lastFinalizedCount) {
+        return;
+    }
+
+    showFinalSummary(lastFinalizedCount.summaries || [], lastFinalizedCount.finishedAt);
 }
 
 const catalogHandlers = {
@@ -147,6 +276,21 @@ const countingHandlers = {
     onFinishCounting: finishCounting
 };
 
+const draftNoticeHandlers = {
+    onContinueDraft: continueDraft,
+    onDiscardDraft: discardDraft
+};
+
+const draftConflictHandlers = {
+    onContinueDraft: continueDraft,
+    onDiscardAndStartNew: discardDraftAndStartNew,
+    onCancel: cancelDraftConflict
+};
+
+const finalizedNoticeHandlers = {
+    onViewLastFinalized: viewLastFinalizedCount
+};
+
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
@@ -155,7 +299,4 @@ connectEvents({
 });
 
 renderUnitOptions();
-
-if (counting.hasSession()) {
-    renderCountingState();
-}
+renderInitialSavedState();
