@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Estoque</title>
+    <link rel="icon" href="https://static.goomer.app/stores/573/products/mobile_menu/templates/451867/logo_300x300_v1728363922.png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+    <div id="banner-container">
+        <img id="banner" src="https://static.goomer.app/stores/573/products/mobile_menu/templates/451867/banner1280x426_v1728364771.png" alt="Banner">
+    </div>
+    <h1>Controle de Estoque</h1>
+    <button id="btn-iniciar-contagem">Iniciar Contagem</button>
+
+    <div id="lista-final">
+        <div class="lista-header"><h2>Itens em Estoque</h2></div>
+        <div id="mensagem-whatsapp-container"><pre id="mensagem-whatsapp"></pre></div>
+        <button id="btn-enviar-mensagem">Enviar Mensagem</button>
+        <button id="btn-recomecar-contagem">Refazer Contagem</button>
+    </div>
+
+    <div class="container">
+        <button id="btn-config"><i class="fas fa-cog"></i></button>
+    </div>
+
+    <div id="itemModal" class="modal">
+        <div class="modal-content">
+            <p id="modal-mensagem"></p>
+            <input type="number" id="modal-quantidade" placeholder="Qtd">
+            <button id="btn-confirmar-quantidade">Confirmar</button>
+            <button id="btn-finalizar-contagem">Finalizar</button>
+        </div>
+    </div>
+
+    <div id="configModal" class="modal">
+        <div class="modal-content">
+            <h2>Gerenciar Itens</h2>
+            <ul id="lista-config"></ul>
+            <input type="text" id="novo-item-nome" placeholder="Nome do Item">
+            <input type="text" id="novo-item-unidade" placeholder="Unidade">
+            <button id="btn-adicionar-item">Adicionar Item</button>
+            <button id="btn-fechar-config">Fechar</button>
+        </div>
+    </div>
+</body>
+</html>
