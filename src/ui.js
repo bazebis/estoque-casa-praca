@@ -383,6 +383,13 @@ function createLastFinalizedDateText(finalizedCount) {
     return "Existe uma contagem finalizada salva neste dispositivo.";
 }
 
+function createHistoryMetaText(entry) {
+    const finishedAt = formatDateTime(entry.finishedAt);
+    const totalItems = Number(entry.totalItemsCounted) || 0;
+
+    return `${finishedAt || "Data não informada"} - Finalizada - ${totalItems} itens contados`;
+}
+
 function createImportItemStatus(item) {
     const statuses = [];
 
@@ -454,10 +461,7 @@ function copyWithFallback(text) {
     return wasCopied;
 }
 
-async function copyFinalReport() {
-    const feedback = getElement("copiar-feedback");
-    const text = getElement("mensagem-whatsapp").textContent;
-
+async function copyTextWithFeedback(text, feedbackElement) {
     try {
         if (navigator.clipboard) {
             await navigator.clipboard.writeText(text);
@@ -465,10 +469,55 @@ async function copyFinalReport() {
             throw new Error("copy failed");
         }
 
-        feedback.textContent = "Texto copiado";
+        feedbackElement.textContent = "Texto copiado";
     } catch {
-        feedback.textContent = "Não foi possível copiar";
+        feedbackElement.textContent = "Não foi possível copiar";
     }
+}
+
+async function copyFinalReport() {
+    await copyTextWithFeedback(
+        getElement("mensagem-whatsapp").textContent,
+        getElement("copiar-feedback")
+    );
+}
+
+function sendWhatsappText(text) {
+    const message = encodeURIComponent(text);
+    window.open(`https://wa.me/5516997530847?text=${message}`, "_blank");
+}
+
+function renderHistoryEmptyState(container) {
+    const empty = document.createElement("p");
+    empty.className = "history-empty";
+    empty.textContent = "Nenhuma contagem finalizada salva neste navegador.";
+    container.appendChild(empty);
+}
+
+function renderHistoryListItem(entry, handlers) {
+    const item = document.createElement("li");
+
+    const button = createButton(createHistoryMetaText(entry), "history-item-button");
+    button.addEventListener("click", () => handlers.onViewHistoryEntry(entry.id));
+
+    item.appendChild(button);
+    return item;
+}
+
+function renderHistoryList(container, history, handlers) {
+    if (history.length === 0) {
+        renderHistoryEmptyState(container);
+        return;
+    }
+
+    const list = document.createElement("ul");
+    list.className = "history-list";
+
+    history.forEach((entry) => {
+        list.appendChild(renderHistoryListItem(entry, handlers));
+    });
+
+    container.appendChild(list);
 }
 
 export function renderUnitOptions() {
@@ -548,6 +597,57 @@ export function renderLastFinalizedNotice(finalizedCount, handlers) {
 
     actions.appendChild(viewButton);
     container.append(title, description, actions);
+}
+
+export function showHistoryList(history, handlers) {
+    const container = getElement("historico-container");
+    const content = getElement("historico-conteudo");
+
+    hideCountingView();
+    hideDraftNotice();
+    getElement("lista-final").style.display = "none";
+    getElement("historico-feedback").textContent = "";
+    content.innerHTML = "";
+    renderHistoryList(content, history, handlers);
+    container.hidden = false;
+}
+
+export function showHistoryDetail(entry, handlers) {
+    const content = getElement("historico-conteudo");
+    content.innerHTML = "";
+    getElement("historico-feedback").textContent = "";
+
+    const meta = document.createElement("p");
+    meta.className = "history-detail-meta";
+    meta.textContent = createHistoryMetaText(entry);
+
+    const report = document.createElement("pre");
+    report.className = "history-report";
+    report.textContent = entry.reportText || "";
+
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+
+    const copyButton = createButton("Copiar texto", "history-primary-button");
+    copyButton.addEventListener("click", () => {
+        copyTextWithFeedback(entry.reportText || "", getElement("historico-feedback"));
+    });
+
+    const whatsappButton = createButton("Enviar WhatsApp", "history-primary-button");
+    whatsappButton.addEventListener("click", () => sendWhatsappText(entry.reportText || ""));
+
+    const backButton = createButton("Voltar ao histórico", "history-secondary-button");
+    backButton.addEventListener("click", handlers.onBackToHistory);
+
+    actions.append(copyButton, whatsappButton, backButton);
+    content.append(meta, report, actions);
+}
+
+export function hideHistoryView() {
+    const container = getElement("historico-container");
+    getElement("historico-conteudo").innerHTML = "";
+    getElement("historico-feedback").textContent = "";
+    container.hidden = true;
 }
 
 export function confirmStartWithDraft(handlers) {
@@ -647,6 +747,7 @@ export function showFinalSummary(summaries, generatedAt = new Date()) {
     finalReportDate = new Date(generatedAt);
     hideCountingView();
     hideDraftNotice();
+    hideHistoryView();
     getElement("mostrar-zerados").checked = false;
     getElement("copiar-feedback").textContent = "";
     renderFinalReport();
@@ -664,8 +765,7 @@ export function closeConfigModal() {
 }
 
 export function sendWhatsappMessage() {
-    const message = encodeURIComponent(getElement("mensagem-whatsapp").textContent);
-    window.open(`https://wa.me/5516997530847?text=${message}`, "_blank");
+    sendWhatsappText(getElement("mensagem-whatsapp").textContent);
 }
 
 function connectCatalogImportEvents(handlers) {
@@ -705,6 +805,8 @@ function connectCatalogImportEvents(handlers) {
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
+    getElement("btn-historico").addEventListener("click", handlers.onOpenHistory);
+    getElement("btn-fechar-historico").addEventListener("click", handlers.onCloseHistory);
     getElement("btn-adicionar-item").addEventListener("click", () => {
         const wasAdded = handlers.onAddItem(getNewItemFormValues());
 

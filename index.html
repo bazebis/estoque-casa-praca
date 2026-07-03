@@ -19,6 +19,17 @@
 
     <section id="contagem-container" class="counting-container"></section>
 
+    <section id="historico-container" class="history-container" hidden>
+        <div class="history-card">
+            <div class="history-header">
+                <h2>Histórico de contagens</h2>
+                <button id="btn-fechar-historico">Fechar</button>
+            </div>
+            <div id="historico-conteudo"></div>
+            <p id="historico-feedback" class="copy-feedback" aria-live="polite"></p>
+        </div>
+    </section>
+
     <div id="lista-final">
         <div class="lista-header"><h2>Itens em Estoque</h2></div>
         <label class="result-toggle">
@@ -34,6 +45,7 @@
 
     <div class="container">
         <button id="btn-config" aria-label="Gerenciar catálogo"><i class="fas fa-cog"></i></button>
+        <button id="btn-historico">Histórico de contagens</button>
     </div>
 
     <div id="configModal" class="modal">

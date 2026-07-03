@@ -2,12 +2,13 @@ import "./styles.css";
 import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
 import { parseCatalogCsv } from "./csvImport.js";
-import { buildCountReport } from "./report.js";
+import { createHistoryEntry } from "./history.js";
 import {
     addCountHistoryEntry,
     clearCountingDraft,
     loadCatalog,
     loadCountingDraft,
+    loadCountingHistory,
     loadLastFinalizedCount,
     saveCatalogBackupBeforeImport,
     saveCatalog,
@@ -16,6 +17,7 @@ import {
 import {
     confirmStartWithDraft,
     connectEvents,
+    hideHistoryView,
     hideDraftNotice,
     openConfigModal,
     renderUnitOptions,
@@ -24,6 +26,8 @@ import {
     renderLastFinalizedNotice,
     renderCatalogImportPreview,
     resetCatalogImportPreview,
+    showHistoryDetail,
+    showHistoryList,
     showFinalSummary,
     showCatalogImportStatus,
     updateConfigList
@@ -37,39 +41,13 @@ let pendingCatalogImport = null;
 
 saveCatalog(catalog.listItems());
 
-function createId(prefix) {
-    if (globalThis.crypto?.randomUUID) {
-        return globalThis.crypto.randomUUID();
-    }
-
-    return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-function createFinalizedCount(draft, summaries, finishedAt) {
-    const finishedAtIso = finishedAt.toISOString();
-
-    return {
-        id: createId("count"),
-        status: "finalizada",
-        startedAt: draft?.startedAt || finishedAtIso,
-        finishedAt: finishedAtIso,
-        items: draft?.items || summaries.map((summary) => summary.item),
-        entriesByItemId: draft?.entriesByItemId || {},
-        summaries: JSON.parse(JSON.stringify(summaries)),
-        reportText: buildCountReport(summaries, {
-            generatedAt: finishedAt,
-            showZeroItems: false
-        })
-    };
-}
-
 function finishCounting() {
     const draft = counting.getDraft();
     const summaries = counting.finishCounting();
     const finishedAt = new Date();
 
     try {
-        lastFinalizedCount = addCountHistoryEntry(createFinalizedCount(draft, summaries, finishedAt))[0];
+        lastFinalizedCount = addCountHistoryEntry(createHistoryEntry(draft, summaries, finishedAt))[0];
     } catch {
         alert("Não foi possível salvar a contagem finalizada. O rascunho foi mantido.");
         return;
@@ -176,6 +154,7 @@ function saveCountingState() {
 
 function renderCountingState() {
     hideDraftNotice();
+    hideHistoryView();
     isCountingVisible = true;
     renderCountingView(counting.getViewModel(), countingHandlers);
 }
@@ -307,6 +286,32 @@ function viewLastFinalizedCount() {
     showFinalSummary(lastFinalizedCount.summaries || [], lastFinalizedCount.finishedAt);
 }
 
+function openHistory() {
+    showHistoryList(loadCountingHistory(), historyHandlers);
+}
+
+function closeHistory() {
+    hideHistoryView();
+
+    if (isCountingVisible) {
+        renderCountingState();
+        return;
+    }
+
+    renderInitialSavedState();
+}
+
+function viewHistoryEntry(entryId) {
+    const entry = loadCountingHistory().find((historyEntry) => historyEntry.id === entryId);
+
+    if (!entry) {
+        openHistory();
+        return;
+    }
+
+    showHistoryDetail(entry, historyHandlers);
+}
+
 const catalogHandlers = {
     getItems: catalog.listItems,
     onDeleteItem: deleteItem,
@@ -337,9 +342,16 @@ const finalizedNoticeHandlers = {
     onViewLastFinalized: viewLastFinalizedCount
 };
 
+const historyHandlers = {
+    onViewHistoryEntry: viewHistoryEntry,
+    onBackToHistory: openHistory
+};
+
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
+    onOpenHistory: openHistory,
+    onCloseHistory: closeHistory,
     onAddItem: addItem,
     onAnalyzeCatalogImport: analyzeCatalogImport,
     onConfirmCatalogImport: applyCatalogImport,

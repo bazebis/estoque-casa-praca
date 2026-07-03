@@ -1,4 +1,5 @@
 import { initialCatalogItems } from "./seed.js";
+import { normalizeHistoryEntry } from "./history.js";
 
 const catalogStorageKey = "itensEstoque";
 const countingDraftStorageKey = "countingDraft";
@@ -61,14 +62,35 @@ export function loadCountingHistory() {
         return [];
     }
 
-    return storedHistory.filter((entry) => entry?.status === "finalizada");
+    return storedHistory
+        .map(normalizeHistoryEntry)
+        .filter(Boolean)
+        .sort((firstEntry, secondEntry) => new Date(secondEntry.finishedAt) - new Date(firstEntry.finishedAt));
+}
+
+export function saveCountingHistory(history) {
+    const normalizedHistory = Array.isArray(history)
+        ? history.map(normalizeHistoryEntry).filter(Boolean)
+        : [];
+    const sortedHistory = normalizedHistory
+        .sort((firstEntry, secondEntry) => new Date(secondEntry.finishedAt) - new Date(firstEntry.finishedAt));
+
+    localStorage.setItem(countingHistoryStorageKey, JSON.stringify(sortedHistory));
+    return sortedHistory;
 }
 
 export function addCountHistoryEntry(entry) {
     const history = loadCountingHistory();
-    const nextHistory = [entry, ...history];
-    localStorage.setItem(countingHistoryStorageKey, JSON.stringify(nextHistory));
-    return nextHistory;
+    const nextHistoryById = new Map(history.map((historyEntry) => [historyEntry.id, historyEntry]));
+    const normalizedEntry = normalizeHistoryEntry(entry);
+
+    if (!normalizedEntry) {
+        return history;
+    }
+
+    nextHistoryById.set(normalizedEntry.id, normalizedEntry);
+
+    return saveCountingHistory([...nextHistoryById.values()]);
 }
 
 export function loadLastFinalizedCount() {
