@@ -18,7 +18,13 @@ function readJson(storageKey) {
 }
 
 export function loadCatalog() {
-    return readJson(catalogStorageKey) || [...initialCatalogItems];
+    const storedCatalog = readJson(catalogStorageKey);
+
+    if (!Array.isArray(storedCatalog)) {
+        return [...initialCatalogItems];
+    }
+
+    return storedCatalog;
 }
 
 export function saveCatalog(items) {

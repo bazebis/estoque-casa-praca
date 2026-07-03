@@ -18,7 +18,10 @@ function closeModal(modalId) {
 }
 
 function formatNumber(value) {
-    return Number(value).toLocaleString("pt-BR", {
+    const numericValue = Number(value);
+    const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+
+    return safeValue.toLocaleString("pt-BR", {
         maximumFractionDigits: 3
     });
 }
@@ -412,7 +415,6 @@ export function showFinalSummary(summaries) {
     finalReportSummaries = summaries;
     finalReportDate = new Date();
     hideCountingView();
-    closeModal("itemModal");
     getElement("mostrar-zerados").checked = false;
     getElement("copiar-feedback").textContent = "";
     renderFinalReport();

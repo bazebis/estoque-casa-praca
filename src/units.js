@@ -48,13 +48,19 @@ export function convertToBase(value, unitId) {
     const numericValue = Number(value);
     const unit = getUnitById(unitId);
 
+    if (!Number.isFinite(numericValue)) {
+        return 0;
+    }
+
     return numericValue * unit.factor;
 }
 
 export function formatQuantity(value, unitId) {
     const unit = getUnitById(unitId);
+    const numericValue = Number(value);
+    const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
 
-    return `${value} ${unit.label}`;
+    return `${safeValue} ${unit.label}`;
 }
 
 export function normalizeUnitId(rawUnit) {

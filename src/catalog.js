@@ -28,6 +28,10 @@ function sortByOrder(firstItem, secondItem) {
 }
 
 function normalizeItems(items) {
+    if (!Array.isArray(items)) {
+        return [];
+    }
+
     return items
         .map(migrateItem)
         .filter((item) => item.name)
@@ -95,7 +99,7 @@ export function createCatalog(initialItems) {
         items = items
             .map((item) => ({
                 ...item,
-                order: orderById.has(item.id) ? orderById.get(item.id) : item.order
+                order: orderById.has(item.id) ? orderById.get(item.id) : Number.MAX_SAFE_INTEGER
             }))
             .sort(sortByOrder)
             .map((item, index) => ({ ...item, order: index }));

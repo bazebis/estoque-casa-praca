@@ -1,4 +1,4 @@
-import { convertToBase, getUnitById } from "./units.js";
+import { convertToBase, getUnitById, normalizeUnitId } from "./units.js";
 
 function createEntryId() {
     if (globalThis.crypto?.randomUUID) {
@@ -33,12 +33,22 @@ function isValidSession(draft) {
     );
 }
 
+function clampIndex(index, items) {
+    if (items.length === 0) {
+        return 0;
+    }
+
+    return Math.min(Math.max(index, 0), items.length - 1);
+}
+
 function cloneSession(session) {
     return JSON.parse(JSON.stringify(session));
 }
 
 function getEntriesForItem(session, itemId) {
-    return session.entriesByItemId[itemId] || [];
+    const entries = session.entriesByItemId[itemId];
+
+    return Array.isArray(entries) ? entries : [];
 }
 
 function calculateItemTotal(entries) {
@@ -57,8 +67,57 @@ function summarizeItem(item, entries) {
     };
 }
 
+function normalizeSessionItem(item, index) {
+    const name = String(item.name || item.nome || "").trim();
+
+    return {
+        id: item.id || `draft_item_${index}`,
+        name,
+        unitId: normalizeUnitId(item.unitId || item.unidade),
+        active: item.active !== false,
+        order: Number.isInteger(item.order) ? item.order : index
+    };
+}
+
+function normalizeSessionEntry(entry) {
+    const quantity = Number(entry.quantity ?? entry.qtd);
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+        return null;
+    }
+
+    return {
+        id: entry.id || createEntryId(),
+        quantity,
+        unitId: normalizeUnitId(entry.unitId || entry.unidade),
+        createdAt: entry.createdAt || new Date().toISOString()
+    };
+}
+
+function sanitizeSession(draft) {
+    if (!isValidSession(draft)) {
+        return null;
+    }
+
+    const items = sortActiveItems(draft.items.map(normalizeSessionItem).filter((item) => item.name));
+    const entriesByItemId = {};
+
+    items.forEach((item) => {
+        entriesByItemId[item.id] = getEntriesForItem(draft, item.id)
+            .map(normalizeSessionEntry)
+            .filter(Boolean);
+    });
+
+    return {
+        version: 1,
+        items,
+        currentIndex: clampIndex(draft.currentIndex, items),
+        entriesByItemId
+    };
+}
+
 export function createCounting(getCatalogItems, initialDraft = null) {
-    let session = isValidSession(initialDraft) ? initialDraft : null;
+    let session = sanitizeSession(initialDraft);
 
     function hasSession() {
         return Boolean(session);

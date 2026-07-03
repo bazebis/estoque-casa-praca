@@ -1,7 +1,10 @@
 import { getUnitById } from "./units.js";
 
 function formatNumber(value) {
-    return Number(value).toLocaleString("pt-BR", {
+    const numericValue = Number(value);
+    const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+
+    return safeValue.toLocaleString("pt-BR", {
         maximumFractionDigits: 3
     });
 }
