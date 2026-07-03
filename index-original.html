@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Controle de Estoque</title>
+    <link rel="icon" href="https://static.goomer.app/stores/573/products/mobile_menu/templates/451867/logo_300x300_v1728363922.png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; font-family: Arial, sans-serif; color: #fff; text-align: center; font-size: 1.2rem; }
+        img { max-width: 70%; height: auto; display: block; margin: 1.25em auto; }
+        h1, p { margin: 1.25em 0; font-size: 1.5em; line-height: 1.6; }
+        button { width: 100%; padding: 1.5em; margin-top: 1.5em; background-color: #555; color: #fff; border: none; border-radius: 0.625em; font-size: 1.3em; cursor: pointer; }
+        button:hover { background-color: #777; }
+        .container { width: 100%; padding: 1.25em; box-sizing: border-box; }
+        .lista-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.15em; padding: 10px; background-color: #333; border-radius: 0.625em 0.625em 0 0; }
+        .lista-header h2 { margin: 0; font-size: 1.2em; text-align: left; }
+        #mensagem-whatsapp-container { background-color: #222; padding: 10px; border-radius: 0 0 0.625em 0.625em; text-align: left; white-space: pre-wrap; }
+        #mensagem-whatsapp { margin: 0; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; font-size: 1em; }
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.4); }
+        .modal-content { background-color: #333; margin: 10% auto; padding: 20px; width: 80%; max-width: 500px; border-radius: 5px; color: #fff; }
+        .modal-content input { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; border-radius: 5px; border: none; }
+        #lista-config { list-style-type: none; padding: 0; max-height: 300px; overflow-y: auto; }
+        #lista-config li { display: flex; justify-content: space-between; align-items: center; padding: 10px; background-color: #444; margin-bottom: 5px; border-radius: 5px; }
+        #lista-config button { width: auto; padding: 5px 10px; margin-left: 5px; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+
+    <div id="banner-container">
+        <img id="banner" src="https://static.goomer.app/stores/573/products/mobile_menu/templates/451867/banner1280x426_v1728364771.png" alt="Banner">
+    </div>
+    <h1>Controle de Estoque</h1>
+    <button onclick="iniciarContagem()">Iniciar Contagem</button>
+
+    <div id="lista-final" style="display: none; padding: 20px;">
+        <div class="lista-header"><h2>Itens em Estoque</h2></div>
+        <div id="mensagem-whatsapp-container"><pre id="mensagem-whatsapp"></pre></div>
+        <button id="btn-enviar-mensagem" onclick="enviarMensagem()">Enviar Mensagem</button>
+        <button onclick="recomecarContagem()">Refazer Contagem</button>
+    </div>
+
+    <div class="container">
+        <button id="btn-config" onclick="abrirConfigModal()"><i class="fas fa-cog"></i></button>
+    </div>
+
+    <div id="itemModal" class="modal">
+        <div class="modal-content">
+            <p id="modal-mensagem"></p>
+            <input type="number" id="modal-quantidade" placeholder="Qtd">
+            <button onclick="confirmarQuantidade()">Confirmar</button>
+            <button onclick="finalizarContagem()">Finalizar</button>
+        </div>
+    </div>
+
+    <div id="configModal" class="modal">
+        <div class="modal-content">
+            <h2>Gerenciar Itens</h2>
+            <ul id="lista-config"></ul>
+            <input type="text" id="novo-item-nome" placeholder="Nome do Item">
+            <input type="text" id="novo-item-unidade" placeholder="Unidade">
+            <button onclick="adicionarItem()">Adicionar Item</button>
+            <button onclick="fecharConfigModal()">Fechar</button>
+        </div>
+    </div>
+
+    <script>
+        // Inicialização com LocalStorage
+        let itensEstoque = JSON.parse(localStorage.getItem('itensEstoque')) || [
+            { nome: "AGUA", unidade: "fardos" },
+            { nome: "COCA", unidade: "fardos 6un" }
+        ];
+
+        function salvarLocalStorage() {
+            localStorage.setItem('itensEstoque', JSON.stringify(itensEstoque));
+        }
+
+        let indiceAtual = 0;
+        let itensParaRepor = [];
+
+        function adicionarItem() {
+            const nome = document.getElementById("novo-item-nome").value.trim();
+            const unidade = document.getElementById("novo-item-unidade").value.trim();
+            if (nome && unidade) {
+                itensEstoque.push({ nome, unidade });
+                salvarLocalStorage();
+                atualizarListaConfig();
+                document.getElementById("novo-item-nome").value = "";
+                document.getElementById("novo-item-unidade").value = "";
+            }
+        }
+
+        function atualizarListaConfig() {
+            const lista = document.getElementById("lista-config");
+            lista.innerHTML = "";
+            itensEstoque.forEach((item, index) => {
+                lista.innerHTML += `<li>${item.nome} (${item.unidade}) 
+                    <button onclick="excluirItem(${index})">🗑️</button></li>`;
+            });
+        }
+
+        function excluirItem(index) {
+            itensEstoque.splice(index, 1);
+            salvarLocalStorage();
+            atualizarListaConfig();
+        }
+
+        function abrirConfigModal() { document.getElementById("configModal").style.display = "block"; atualizarListaConfig(); }
+        function fecharConfigModal() { document.getElementById("configModal").style.display = "none"; }
+
+        function iniciarContagem() {
+            itensParaRepor = [];
+            indiceAtual = 0;
+            contarItem();
+        }
+
+        function contarItem() {
+            if (indiceAtual < itensEstoque.length) {
+                document.getElementById("modal-mensagem").textContent = `Qtd de ${itensEstoque[indiceAtual].nome}:`;
+                document.getElementById("itemModal").style.display = "block";
+            } else {
+                finalizarContagem();
+            }
+        }
+
+        function confirmarQuantidade() {
+            const qtd = document.getElementById("modal-quantidade").value;
+            if (qtd > 0) {
+                itensParaRepor.push({ ...itensEstoque[indiceAtual], qtd });
+            }
+            document.getElementById("modal-quantidade").value = "";
+            indiceAtual++;
+            contarItem();
+        }
+
+        function finalizarContagem() {
+            document.getElementById("itemModal").style.display = "none";
+            let msg = "Itens em Estoque:\n";
+            itensParaRepor.forEach(i => msg += `- ${i.nome}: ${i.qtd} ${i.unidade}\n`);
+            document.getElementById("mensagem-whatsapp").textContent = msg;
+            document.getElementById("lista-final").style.display = "block";
+        }
+
+        function enviarMensagem() {
+            const msg = encodeURIComponent(document.getElementById("mensagem-whatsapp").textContent);
+            window.open(`https://wa.me/5516997530847?text=${msg}`, "_blank");
+        }
+
+        function recomecarContagem() { location.reload(); }
+    </script>
+</body>
+</html>
