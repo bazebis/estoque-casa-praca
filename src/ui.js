@@ -1,10 +1,12 @@
 import { getActiveUnits, getBaseUnits, getUnitById, resolveUnitSnapshot } from "./units.js";
 import { buildCountReport } from "./report.js";
+import { exportStockCountCsv, exportStockCountJson } from "./integrations/exportOperational.js";
 
 let editingItemId = null;
 let editingUnitId = null;
 let finalReportSummaries = [];
 let finalReportDate = null;
+let finalReportCount = null;
 
 function getElement(id) {
     return document.getElementById(id);
@@ -535,6 +537,34 @@ function renderFinalReport() {
     getElement("mensagem-whatsapp").textContent = message;
 }
 
+function getFinalReportCount() {
+    if (finalReportCount) {
+        return finalReportCount;
+    }
+
+    const finishedAt = finalReportDate || new Date();
+
+    return {
+        id: "",
+        status: "finalizada",
+        startedAt: finishedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        summaries: finalReportSummaries,
+        reportText: buildCountReport(finalReportSummaries, {
+            generatedAt: finishedAt,
+            showZeroItems: false
+        })
+    };
+}
+
+function exportFinalReportJson() {
+    exportStockCountJson(getFinalReportCount());
+}
+
+function exportFinalReportCsv() {
+    exportStockCountCsv(getFinalReportCount());
+}
+
 function createDraftDateText(draft) {
     const startedAt = formatDateTime(draft?.startedAt);
     const updatedAt = formatDateTime(draft?.updatedAt);
@@ -905,10 +935,16 @@ export function showHistoryDetail(entry, handlers) {
     const whatsappButton = createButton("Enviar WhatsApp", "history-primary-button");
     whatsappButton.addEventListener("click", () => sendWhatsappText(entry.reportText || ""));
 
+    const jsonButton = createButton("Exportar JSON", "history-secondary-button");
+    jsonButton.addEventListener("click", () => exportStockCountJson(entry));
+
+    const csvButton = createButton("Exportar CSV", "history-secondary-button");
+    csvButton.addEventListener("click", () => exportStockCountCsv(entry));
+
     const backButton = createButton("Voltar ao histórico", "history-secondary-button");
     backButton.addEventListener("click", handlers.onBackToHistory);
 
-    actions.append(copyButton, whatsappButton, backButton);
+    actions.append(copyButton, whatsappButton, jsonButton, csvButton, backButton);
     content.append(meta, report, actions);
 }
 
@@ -1011,9 +1047,10 @@ export function hideCountingView() {
     container.style.display = "none";
 }
 
-export function showFinalSummary(summaries, generatedAt = new Date()) {
+export function showFinalSummary(summaries, generatedAt = new Date(), finalizedCount = null) {
     finalReportSummaries = summaries;
     finalReportDate = new Date(generatedAt);
+    finalReportCount = finalizedCount;
     hideCountingView();
     hideDraftNotice();
     hideHistoryView();
@@ -1141,5 +1178,7 @@ export function connectEvents(handlers) {
     });
     getElement("btn-copiar-texto").addEventListener("click", copyFinalReport);
     getElement("btn-enviar-mensagem").addEventListener("click", sendWhatsappMessage);
+    getElement("btn-exportar-json").addEventListener("click", exportFinalReportJson);
+    getElement("btn-exportar-csv").addEventListener("click", exportFinalReportCsv);
     getElement("btn-recomecar-contagem").addEventListener("click", handlers.onRestartCounting);
 }

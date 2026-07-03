@@ -114,7 +114,7 @@ async function finishCounting() {
     counting.clearSession();
     await clearCountingDraft();
     isCountingVisible = false;
-    showFinalSummary(summaries, finishedAt);
+    showFinalSummary(lastFinalizedCount.summaries || summaries, lastFinalizedCount.finishedAt || finishedAt, lastFinalizedCount);
 }
 
 function refreshConfigList() {
@@ -474,7 +474,7 @@ function viewLastFinalizedCount() {
         return;
     }
 
-    showFinalSummary(lastFinalizedCount.summaries || [], lastFinalizedCount.finishedAt);
+    showFinalSummary(lastFinalizedCount.summaries || [], lastFinalizedCount.finishedAt, lastFinalizedCount);
 }
 
 async function openHistory() {

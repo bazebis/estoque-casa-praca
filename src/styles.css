@@ -249,6 +249,8 @@ button:disabled {
 
 #btn-copiar-texto,
 #btn-enviar-mensagem,
+#btn-exportar-json,
+#btn-exportar-csv,
 #btn-recomecar-contagem {
     margin-top: var(--space-3);
 }
