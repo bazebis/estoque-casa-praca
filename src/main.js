@@ -55,6 +55,7 @@ import {
     renderStorageStatusNotice,
     showHistoryDetail,
     showHistoryList,
+    showAdminMenu,
     showFinalSummary,
     showBackupImportStatus,
     showCatalogImportStatus,
@@ -478,18 +479,13 @@ function viewLastFinalizedCount() {
 }
 
 async function openHistory() {
+    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "history");
     showHistoryList(await loadCountingHistory(), historyHandlers);
 }
 
 function closeHistory() {
     hideHistoryView();
-
-    if (isCountingVisible) {
-        renderCountingState();
-        return;
-    }
-
-    renderInitialSavedState();
+    showAdminMenu();
 }
 
 async function viewHistoryEntry(entryId) {

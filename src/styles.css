@@ -606,6 +606,109 @@ select {
     margin-top: var(--space-3);
 }
 
+/* admin navigation */
+.admin-content {
+    max-width: 620px;
+}
+
+.admin-topbar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-3);
+    align-items: center;
+    margin-bottom: var(--space-4);
+}
+
+.admin-topbar h2 {
+    margin: 0;
+}
+
+#btn-fechar-config {
+    width: auto;
+    min-height: 44px;
+    margin-top: 0;
+    padding: 10px var(--space-3);
+}
+
+.admin-menu {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.admin-menu[hidden],
+.admin-section[hidden] {
+    display: none;
+}
+
+.admin-menu-button {
+    min-height: 64px;
+    padding: var(--space-4);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    text-align: left;
+}
+
+.admin-menu-button:hover {
+    background-color: var(--color-surface-soft);
+}
+
+.admin-section {
+    margin-top: var(--space-3);
+}
+
+.admin-section h3 {
+    margin: 0 0 var(--space-3);
+    font-size: 1.2rem;
+}
+
+.admin-back-button,
+#btn-fechar-historico {
+    min-height: 44px;
+    margin-bottom: var(--space-4);
+    background-color: var(--color-surface-soft);
+}
+
+.admin-section.units-section,
+.admin-section.catalog-import,
+.admin-section.backup-section {
+    margin-top: var(--space-3);
+    padding-top: 0;
+    border-top: 0;
+}
+
+.admin-history-container {
+    width: 100%;
+    max-width: none;
+    padding-top: 0;
+}
+
+.admin-history-container .history-card {
+    padding: 0;
+    background-color: transparent;
+    border: 0;
+    box-shadow: none;
+}
+
+.admin-about .about-list {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-about li {
+    padding: var(--space-3);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+}
+
+.admin-about strong {
+    color: var(--color-text);
+}
+
 /* counting */
 .counting-container {
     display: none;

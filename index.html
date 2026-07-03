@@ -25,16 +25,6 @@
 
     <section id="contagem-container" class="counting-container"></section>
 
-    <section id="historico-container" class="history-container" hidden>
-        <div class="history-card">
-            <div class="history-header">
-                <h2>Histórico de contagens</h2>
-                <button id="btn-fechar-historico">Fechar</button>
-            </div>
-            <div id="historico-conteudo"></div>
-            <p id="historico-feedback" class="copy-feedback" aria-live="polite"></p>
-        </div>
-    </section>
 
     <div id="lista-final">
         <div class="lista-header"><h2>Itens em Estoque</h2></div>
@@ -57,28 +47,33 @@
     </div>
 
     <div id="configModal" class="modal">
-        <div class="modal-content">
-            <h2>Gerenciar Itens</h2>
-            <ul id="lista-config"></ul>
-            <input type="text" id="novo-item-nome" placeholder="Nome do Item">
-            <select id="novo-item-unidade" required></select>
-            <button id="btn-adicionar-item">Adicionar Item</button>
+        <div class="modal-content admin-content">
+            <div class="admin-topbar">
+                <h2 id="admin-title">Configurações</h2>
+                <button id="btn-fechar-config" aria-label="Fechar configurações">Fechar</button>
+            </div>
 
-            <section class="units-section">
-                <h3>Unidades</h3>
-                <p>Unidades padrão são fixas. Unidades personalizadas podem ser editadas ou desativadas.</p>
-                <ul id="lista-unidades"></ul>
-                <div class="unit-form">
-                    <input type="text" id="nova-unidade-label" placeholder="Nome da unidade">
-                    <select id="nova-unidade-base" aria-label="Unidade base"></select>
-                    <input type="number" id="nova-unidade-factor" min="0" step="any" placeholder="Fator">
-                    <button id="btn-adicionar-unidade">Adicionar unidade</button>
-                </div>
-                <p id="unidades-feedback" class="units-feedback" aria-live="polite"></p>
+            <section id="admin-menu" class="admin-menu" aria-label="Menu de configurações">
+                <button type="button" class="admin-menu-button" data-admin-target="catalog">Catálogo de itens</button>
+                <button type="button" class="admin-menu-button" data-admin-target="catalog-import">Importar catálogo CSV</button>
+                <button type="button" class="admin-menu-button" data-admin-target="units">Unidades e conversões</button>
+                <button type="button" class="admin-menu-button" data-admin-target="history">Histórico de contagens</button>
+                <button type="button" class="admin-menu-button" data-admin-target="backup">Backup e restauração</button>
+                <button type="button" class="admin-menu-button" data-admin-target="about">Sobre o app</button>
             </section>
 
-            <section class="catalog-import">
-                <h3>Importar catálogo</h3>
+            <section id="admin-section-catalog" class="admin-section" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Catálogo de itens</h3>
+                <ul id="lista-config"></ul>
+                <input type="text" id="novo-item-nome" placeholder="Nome do Item">
+                <select id="novo-item-unidade" required></select>
+                <button id="btn-adicionar-item">Adicionar Item</button>
+            </section>
+
+            <section id="admin-section-catalog-import" class="admin-section catalog-import" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Importar catálogo CSV</h3>
                 <p>CSV com cabeçalho e colunas nome e unidade. Também aceita separador ponto e vírgula.</p>
                 <input type="file" id="catalog-import-file" accept=".csv,text/csv">
                 <div class="catalog-import-modes" role="radiogroup" aria-label="Modo de importação">
@@ -104,8 +99,36 @@
                 </div>
             </section>
 
-            <section class="backup-section">
-                <h3>Backup</h3>
+            <section id="admin-section-units" class="admin-section units-section" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Unidades e conversões</h3>
+                <p>Unidades padrão são fixas. Unidades personalizadas podem ser editadas ou desativadas.</p>
+                <ul id="lista-unidades"></ul>
+                <div class="unit-form">
+                    <input type="text" id="nova-unidade-label" placeholder="Nome da unidade">
+                    <select id="nova-unidade-base" aria-label="Unidade base"></select>
+                    <input type="number" id="nova-unidade-factor" min="0" step="any" placeholder="Fator">
+                    <button id="btn-adicionar-unidade">Adicionar unidade</button>
+                </div>
+                <p id="unidades-feedback" class="units-feedback" aria-live="polite"></p>
+            </section>
+
+            <section id="admin-section-history" class="admin-section" hidden>
+                <section id="historico-container" class="history-container admin-history-container" hidden>
+                    <div class="history-card">
+                        <div class="history-header">
+                            <h2>Histórico de contagens</h2>
+                            <button id="btn-fechar-historico">Voltar para configurações</button>
+                        </div>
+                        <div id="historico-conteudo"></div>
+                        <p id="historico-feedback" class="copy-feedback" aria-live="polite"></p>
+                    </div>
+                </section>
+            </section>
+
+            <section id="admin-section-backup" class="admin-section backup-section" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Backup e restauração</h3>
                 <p>Exporta e importa dados locais do app, incluindo catálogo, histórico e chaves internas relevantes.</p>
                 <button id="btn-exportar-backup">Exportar backup</button>
                 <input type="file" id="backup-import-file" accept=".json,application/json">
@@ -132,7 +155,17 @@
                 </div>
             </section>
 
-            <button id="btn-fechar-config">Fechar</button>
+            <section id="admin-section-about" class="admin-section admin-about" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Sobre o app</h3>
+                <ul class="about-list">
+                    <li><strong>Estoque Casa da Praça</strong></li>
+                    <li>Versão 0.1.0</li>
+                    <li>Os dados são salvos localmente neste aparelho.</li>
+                    <li>Faça backup regularmente para evitar perda de catálogo e histórico.</li>
+                    <li>Depois do primeiro carregamento ou instalação, o app pode abrir offline.</li>
+                </ul>
+            </section>
         </div>
     </div>
 </body>

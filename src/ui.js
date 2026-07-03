@@ -8,6 +8,15 @@ let finalReportSummaries = [];
 let finalReportDate = null;
 let finalReportCount = null;
 
+const adminSections = {
+    catalog: "admin-section-catalog",
+    "catalog-import": "admin-section-catalog-import",
+    units: "admin-section-units",
+    history: "admin-section-history",
+    backup: "admin-section-backup",
+    about: "admin-section-about"
+};
+
 function getElement(id) {
     return document.getElementById(id);
 }
@@ -18,6 +27,22 @@ function openModal(modalId) {
 
 function closeModal(modalId) {
     getElement(modalId).style.display = "none";
+}
+
+function showAdminSection(sectionName) {
+    const menu = getElement("admin-menu");
+    const shouldShowMenu = !sectionName || sectionName === "menu";
+
+    menu.hidden = !shouldShowMenu;
+
+    Object.entries(adminSections).forEach(([name, sectionId]) => {
+        getElement(sectionId).hidden = shouldShowMenu || name !== sectionName;
+    });
+}
+
+export function showAdminMenu() {
+    hideHistoryView();
+    showAdminSection("menu");
 }
 
 function formatNumber(value) {
@@ -899,6 +924,7 @@ export function renderLastFinalizedNotice(finalizedCount, handlers) {
 }
 
 export function showHistoryList(history, handlers) {
+    showAdminSection("history");
     const container = getElement("historico-container");
     const content = getElement("historico-conteudo");
 
@@ -1060,15 +1086,18 @@ export function showFinalSummary(summaries, generatedAt = new Date(), finalizedC
     getElement("lista-final").style.display = "block";
 }
 
-export function openConfigModal(items, handlers, unitHandlers) {
+export function openConfigModal(items, handlers, unitHandlers, initialSection = "menu") {
     openModal("configModal");
     updateConfigList(items, handlers);
     renderUnitsList(unitHandlers.getUnits(), unitHandlers);
+    showAdminSection(initialSection);
 }
 
 export function closeConfigModal() {
     editingItemId = null;
     editingUnitId = null;
+    hideHistoryView();
+    showAdminSection("menu");
     closeModal("configModal");
 }
 
@@ -1156,6 +1185,25 @@ function connectUnitEvents(handlers) {
     });
 }
 
+function connectAdminNavigationEvents(handlers) {
+    document.querySelectorAll(".admin-back-button").forEach((button) => {
+        button.addEventListener("click", showAdminMenu);
+    });
+
+    document.querySelectorAll(".admin-menu-button").forEach((button) => {
+        button.addEventListener("click", () => {
+            const target = button.dataset.adminTarget;
+
+            if (target === "history") {
+                handlers.onOpenHistory();
+                return;
+            }
+
+            showAdminSection(target);
+        });
+    });
+}
+
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
@@ -1169,6 +1217,7 @@ export function connectEvents(handlers) {
         }
     });
     getElement("btn-fechar-config").addEventListener("click", closeConfigModal);
+    connectAdminNavigationEvents(handlers);
     connectCatalogImportEvents(handlers);
     connectBackupEvents(handlers);
     connectUnitEvents(handlers);
