@@ -19,7 +19,13 @@
 
     <div id="lista-final">
         <div class="lista-header"><h2>Itens em Estoque</h2></div>
+        <label class="result-toggle">
+            <input type="checkbox" id="mostrar-zerados">
+            Mostrar itens zerados
+        </label>
         <div id="mensagem-whatsapp-container"><pre id="mensagem-whatsapp"></pre></div>
+        <p id="copiar-feedback" class="copy-feedback" aria-live="polite"></p>
+        <button id="btn-copiar-texto">Copiar texto</button>
         <button id="btn-enviar-mensagem">Enviar Mensagem</button>
         <button id="btn-recomecar-contagem">Refazer Contagem</button>
     </div>

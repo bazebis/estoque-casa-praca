@@ -1,6 +1,9 @@
 import { getUnitById, getUnits } from "./units.js";
+import { buildCountReport } from "./report.js";
 
 let editingItemId = null;
+let finalReportSummaries = [];
+let finalReportDate = null;
 
 function getElement(id) {
     return document.getElementById(id);
@@ -30,16 +33,6 @@ function getNewItemFormValues() {
         name: getElement("novo-item-nome").value.trim(),
         unitId: getElement("novo-item-unidade").value
     };
-}
-
-function buildFinalMessage(summaries) {
-    let message = "Itens em Estoque:\n";
-
-    summaries.forEach((summary) => {
-        message += `- ${summary.item.name}: ${formatNumber(summary.totalBase)} ${summary.baseUnit}\n`;
-    });
-
-    return message;
 }
 
 function createUnitOption(unit, selectedUnitId) {
@@ -301,6 +294,47 @@ function renderCountingNavigation(card, viewModel, handlers) {
     card.appendChild(actions);
 }
 
+function renderFinalReport() {
+    const showZeroItems = getElement("mostrar-zerados").checked;
+    const message = buildCountReport(finalReportSummaries, {
+        generatedAt: finalReportDate,
+        showZeroItems
+    });
+
+    getElement("mensagem-whatsapp").textContent = message;
+}
+
+function copyWithFallback(text) {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    const wasCopied = document.execCommand("copy");
+    textarea.remove();
+    return wasCopied;
+}
+
+async function copyFinalReport() {
+    const feedback = getElement("copiar-feedback");
+    const text = getElement("mensagem-whatsapp").textContent;
+
+    try {
+        if (navigator.clipboard) {
+            await navigator.clipboard.writeText(text);
+        } else if (!copyWithFallback(text)) {
+            throw new Error("copy failed");
+        }
+
+        feedback.textContent = "Texto copiado";
+    } catch {
+        feedback.textContent = "Não foi possível copiar";
+    }
+}
+
 export function renderUnitOptions() {
     renderUnitSelect(getElement("novo-item-unidade"));
 }
@@ -371,9 +405,13 @@ export function hideCountingView() {
 }
 
 export function showFinalSummary(summaries) {
+    finalReportSummaries = summaries;
+    finalReportDate = new Date();
     hideCountingView();
     closeModal("itemModal");
-    getElement("mensagem-whatsapp").textContent = buildFinalMessage(summaries);
+    getElement("mostrar-zerados").checked = false;
+    getElement("copiar-feedback").textContent = "";
+    renderFinalReport();
     getElement("lista-final").style.display = "block";
 }
 
@@ -403,6 +441,11 @@ export function connectEvents(handlers) {
         }
     });
     getElement("btn-fechar-config").addEventListener("click", closeConfigModal);
+    getElement("mostrar-zerados").addEventListener("change", () => {
+        getElement("copiar-feedback").textContent = "";
+        renderFinalReport();
+    });
+    getElement("btn-copiar-texto").addEventListener("click", copyFinalReport);
     getElement("btn-enviar-mensagem").addEventListener("click", sendWhatsappMessage);
     getElement("btn-recomecar-contagem").addEventListener("click", handlers.onRestartCounting);
 }

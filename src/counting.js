@@ -154,8 +154,7 @@ export function createCounting(getCatalogItems, initialDraft = null) {
         }
 
         return session.items
-            .map((item) => summarizeItem(item, getEntriesForItem(session, item.id)))
-            .filter((summary) => summary.totalBase > 0);
+            .map((item) => summarizeItem(item, getEntriesForItem(session, item.id)));
     }
 
     function clearSession() {
