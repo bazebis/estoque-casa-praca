@@ -14,6 +14,8 @@ import { createHistoryEntry } from "./history.js";
 import {
     addCountHistoryEntry,
     clearCountingDraft,
+    getStorageStatus,
+    initializeStorage,
     loadCatalog,
     loadCountingDraft,
     loadCountingHistory,
@@ -49,6 +51,7 @@ import {
     resetBackupImportPreview,
     renderBackupImportPreview,
     renderUnitsList,
+    renderStorageStatusNotice,
     showHistoryDetail,
     showHistoryList,
     showFinalSummary,
@@ -58,16 +61,18 @@ import {
     updateConfigList
 } from "./ui.js";
 
-setCustomUnits(loadCustomUnits());
+const storageStatus = await initializeStorage();
+renderStorageStatusNotice(storageStatus || getStorageStatus());
+setCustomUnits(await loadCustomUnits());
 
-const catalog = createCatalog(loadCatalog());
-const counting = createCounting(catalog.listItems, loadCountingDraft());
-let lastFinalizedCount = loadLastFinalizedCount();
+const catalog = createCatalog(await loadCatalog());
+const counting = createCounting(catalog.listItems, await loadCountingDraft());
+let lastFinalizedCount = await loadLastFinalizedCount();
 let isCountingVisible = false;
 let pendingCatalogImport = null;
 let pendingBackupImport = null;
 
-saveCatalog(catalog.listItems());
+await saveCatalog(catalog.listItems());
 
 function mergeCustomUnitLists(currentUnits, importedUnits) {
     const unitById = new Map();
@@ -79,8 +84,8 @@ function mergeCustomUnitLists(currentUnits, importedUnits) {
     return [...unitById.values()];
 }
 
-function saveCustomUnitState(units) {
-    const savedUnits = saveCustomUnits(units);
+async function saveCustomUnitState(units) {
+    const savedUnits = await saveCustomUnits(units);
     setCustomUnits(savedUnits);
     return savedUnits;
 }
@@ -91,20 +96,20 @@ function refreshUnitsView() {
     refreshConfigList();
 }
 
-function finishCounting() {
+async function finishCounting() {
     const draft = counting.getDraft();
     const summaries = counting.finishCounting();
     const finishedAt = new Date();
 
     try {
-        lastFinalizedCount = addCountHistoryEntry(createHistoryEntry(draft, summaries, finishedAt))[0];
+        lastFinalizedCount = (await addCountHistoryEntry(createHistoryEntry(draft, summaries, finishedAt)))[0];
     } catch {
         alert("Não foi possível salvar a contagem finalizada. O rascunho foi mantido.");
         return;
     }
 
     counting.clearSession();
-    clearCountingDraft();
+    await clearCountingDraft();
     isCountingVisible = false;
     showFinalSummary(summaries, finishedAt);
 }
@@ -113,7 +118,7 @@ function refreshConfigList() {
     updateConfigList(catalog.listItems(), catalogHandlers);
 }
 
-function addItem(item) {
+async function addItem(item) {
     const previousLength = catalog.listItems().length;
     const items = catalog.addItem(item);
     const wasAdded = items.length > previousLength;
@@ -122,39 +127,39 @@ function addItem(item) {
         return false;
     }
 
-    saveCatalog(items);
+    await saveCatalog(items);
     refreshConfigList();
     return true;
 }
 
-function updateItem(itemId, values) {
+async function updateItem(itemId, values) {
     if (!values.name.trim() || !values.unitId) {
         return false;
     }
 
     const items = catalog.updateItem(itemId, values);
-    saveCatalog(items);
+    await saveCatalog(items);
     refreshConfigList();
     return true;
 }
 
-function deleteItem(itemId) {
+async function deleteItem(itemId) {
     const item = catalog.listItems().find((catalogItem) => catalogItem.id === itemId);
 
     if (!item || !window.confirm(`Excluir ${item.name}?`)) {
         return;
     }
 
-    saveCatalog(catalog.deleteItem(itemId));
+    await saveCatalog(catalog.deleteItem(itemId));
     refreshConfigList();
 }
 
-function reorderItems(orderedIds) {
-    saveCatalog(catalog.reorderItems(orderedIds));
+async function reorderItems(orderedIds) {
+    await saveCatalog(catalog.reorderItems(orderedIds));
     refreshConfigList();
 }
 
-function addCustomUnit(values) {
+async function addCustomUnit(values) {
     const result = createCustomUnit(values);
 
     if (result.error) {
@@ -162,13 +167,13 @@ function addCustomUnit(values) {
         return false;
     }
 
-    saveCustomUnitState([...getCustomUnits(), result.unit]);
+    await saveCustomUnitState([...getCustomUnits(), result.unit]);
     refreshUnitsView();
     showUnitsFeedback("Unidade adicionada.");
     return true;
 }
 
-function updateCustomUnit(unitId, values) {
+async function updateCustomUnit(unitId, values) {
     const result = updateCustomUnitList(getCustomUnits(), unitId, values);
 
     if (result.error) {
@@ -176,14 +181,14 @@ function updateCustomUnit(unitId, values) {
         return false;
     }
 
-    saveCustomUnitState(result.units);
+    await saveCustomUnitState(result.units);
     refreshUnitsView();
     showUnitsFeedback("Unidade atualizada.");
     return true;
 }
 
-function toggleCustomUnit(unitId, shouldActivate) {
-    updateCustomUnit(unitId, {
+async function toggleCustomUnit(unitId, shouldActivate) {
+    await updateCustomUnit(unitId, {
         ...getCustomUnits().find((unit) => unit.id === unitId),
         active: shouldActivate
     });
@@ -200,7 +205,7 @@ function confirmReplaceImport() {
     );
 }
 
-function applyCatalogImport(mode) {
+async function applyCatalogImport(mode) {
     if (!pendingCatalogImport?.items?.length) {
         showCatalogImportStatus("Analise um CSV válido antes de importar.");
         return;
@@ -211,12 +216,12 @@ function applyCatalogImport(mode) {
     }
 
     if (mode === "replace") {
-        saveCatalogBackupBeforeImport(catalog.listItems());
-        saveCatalog(catalog.replaceWithImportedItems(pendingCatalogImport.items));
+        await saveCatalogBackupBeforeImport(catalog.listItems());
+        await saveCatalog(catalog.replaceWithImportedItems(pendingCatalogImport.items));
     } else if (mode === "upsert") {
-        saveCatalog(catalog.upsertImportedItems(pendingCatalogImport.items));
+        await saveCatalog(catalog.upsertImportedItems(pendingCatalogImport.items));
     } else {
-        saveCatalog(catalog.appendImportedItems(pendingCatalogImport.items));
+        await saveCatalog(catalog.appendImportedItems(pendingCatalogImport.items));
     }
 
     pendingCatalogImport = null;
@@ -229,18 +234,18 @@ function cancelCatalogImport() {
     pendingCatalogImport = null;
 }
 
-function createCurrentBackupPayload() {
+async function createCurrentBackupPayload() {
     return buildBackupPayload({
         catalogItems: catalog.listItems(),
-        countingHistory: loadCountingHistory(),
-        lastFinalizedCount: loadLastFinalizedCount(),
+        countingHistory: await loadCountingHistory(),
+        lastFinalizedCount: await loadLastFinalizedCount(),
         customUnits: getCustomUnits(),
-        localStorageKeys: loadRelevantLocalStorageKeys()
+        localStorageKeys: await loadRelevantLocalStorageKeys()
     });
 }
 
-function exportBackup() {
-    downloadBackup(createCurrentBackupPayload());
+async function exportBackup() {
+    downloadBackup(await createCurrentBackupPayload());
     showBackupImportStatus("Backup exportado.");
 }
 
@@ -291,7 +296,7 @@ function confirmBackupImportMode(mode) {
     return true;
 }
 
-function applyBackupImport(mode) {
+async function applyBackupImport(mode) {
     if (!pendingBackupImport) {
         showBackupImportStatus("Analise um backup válido antes de importar.");
         return;
@@ -301,21 +306,22 @@ function applyBackupImport(mode) {
         return;
     }
 
-    saveBackupBeforeJsonImport(createCurrentBackupPayload());
+    await saveBackupBeforeJsonImport(await createCurrentBackupPayload());
 
     if (mode === "replace-all") {
-        saveCustomUnitState(pendingBackupImport.customUnits);
-        saveCatalog(catalog.replaceItems(pendingBackupImport.catalogItems));
-        saveCountingHistory(pendingBackupImport.countingHistory);
+        await saveCustomUnitState(pendingBackupImport.customUnits);
+        await saveCatalog(catalog.replaceItems(pendingBackupImport.catalogItems));
+        await saveCountingHistory(pendingBackupImport.countingHistory);
     } else if (mode === "replace-catalog") {
-        saveCustomUnitState(mergeCustomUnitLists(getCustomUnits(), pendingBackupImport.customUnits));
-        saveCatalog(catalog.replaceItems(pendingBackupImport.catalogItems));
+        await saveCustomUnitState(mergeCustomUnitLists(getCustomUnits(), pendingBackupImport.customUnits));
+        await saveCatalog(catalog.replaceItems(pendingBackupImport.catalogItems));
     } else {
-        saveCustomUnitState(mergeCustomUnitLists(getCustomUnits(), pendingBackupImport.customUnits));
-        saveCountingHistory(mergeCountingHistory(loadCountingHistory(), pendingBackupImport.countingHistory));
+        const currentHistory = await loadCountingHistory();
+        await saveCustomUnitState(mergeCustomUnitLists(getCustomUnits(), pendingBackupImport.customUnits));
+        await saveCountingHistory(mergeCountingHistory(currentHistory, pendingBackupImport.countingHistory));
     }
 
-    lastFinalizedCount = loadLastFinalizedCount();
+    lastFinalizedCount = await loadLastFinalizedCount();
     pendingBackupImport = null;
     refreshUnitsView();
     resetBackupImportPreview();
@@ -326,11 +332,11 @@ function cancelBackupImport() {
     pendingBackupImport = null;
 }
 
-function saveCountingState() {
+async function saveCountingState() {
     const draft = counting.getDraft();
 
     if (draft) {
-        saveCountingDraft(draft);
+        await saveCountingDraft(draft);
     }
 }
 
@@ -341,18 +347,18 @@ function renderCountingState() {
     renderCountingView(counting.getViewModel(), countingHandlers);
 }
 
-function startCounting() {
+async function startCounting() {
     if (counting.hasSession()) {
         confirmStartWithDraft(draftConflictHandlers);
         return;
     }
 
-    startNewCounting();
+    await startNewCounting();
 }
 
-function startNewCounting() {
+async function startNewCounting() {
     counting.startCounting();
-    saveCountingState();
+    await saveCountingState();
     renderCountingState();
 }
 
@@ -367,16 +373,16 @@ function renderInitialSavedState() {
     }
 }
 
-function continueDraft() {
+async function continueDraft() {
     if (!counting.hasSession()) {
         return;
     }
 
-    saveCountingState();
+    await saveCountingState();
     renderCountingState();
 }
 
-function discardDraft() {
+async function discardDraft() {
     const shouldDiscard = window.confirm("Descartar a contagem em andamento? O catálogo será mantido.");
 
     if (!shouldDiscard) {
@@ -384,12 +390,12 @@ function discardDraft() {
     }
 
     counting.clearSession();
-    clearCountingDraft();
+    await clearCountingDraft();
     isCountingVisible = false;
     hideDraftNotice();
 }
 
-function discardDraftAndStartNew() {
+async function discardDraftAndStartNew() {
     const shouldDiscard = window.confirm(
         "Descartar a contagem em andamento e iniciar uma nova? As entradas salvas serão apagadas."
     );
@@ -399,8 +405,8 @@ function discardDraftAndStartNew() {
     }
 
     counting.clearSession();
-    clearCountingDraft();
-    startNewCounting();
+    await clearCountingDraft();
+    await startNewCounting();
 }
 
 function cancelDraftConflict() {
@@ -412,33 +418,33 @@ function cancelDraftConflict() {
     renderDraftNotice(counting.getDraft(), draftNoticeHandlers);
 }
 
-function addCountingEntry(quantity, unitId) {
+async function addCountingEntry(quantity, unitId) {
     const wasAdded = counting.addEntry(quantity, unitId);
 
     if (!wasAdded) {
         return false;
     }
 
-    saveCountingState();
+    await saveCountingState();
     renderCountingState();
     return true;
 }
 
-function removeCountingEntry(entryId) {
+async function removeCountingEntry(entryId) {
     counting.removeEntry(entryId);
-    saveCountingState();
+    await saveCountingState();
     renderCountingState();
 }
 
-function goToPreviousCountingItem() {
+async function goToPreviousCountingItem() {
     counting.goToPreviousItem();
-    saveCountingState();
+    await saveCountingState();
     renderCountingState();
 }
 
-function goToNextCountingItem() {
+async function goToNextCountingItem() {
     counting.goToNextItem();
-    saveCountingState();
+    await saveCountingState();
     renderCountingState();
 }
 
@@ -446,7 +452,7 @@ function openCatalogConfig() {
     openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers);
 }
 
-function restartCounting() {
+async function restartCounting() {
     const shouldRestart = window.confirm(
         "Iniciar nova contagem? O relatório finalizado continuará salvo, mas a tela atual será fechada."
     );
@@ -456,8 +462,8 @@ function restartCounting() {
     }
 
     counting.clearSession();
-    clearCountingDraft();
-    startNewCounting();
+    await clearCountingDraft();
+    await startNewCounting();
 }
 
 function viewLastFinalizedCount() {
@@ -468,8 +474,8 @@ function viewLastFinalizedCount() {
     showFinalSummary(lastFinalizedCount.summaries || [], lastFinalizedCount.finishedAt);
 }
 
-function openHistory() {
-    showHistoryList(loadCountingHistory(), historyHandlers);
+async function openHistory() {
+    showHistoryList(await loadCountingHistory(), historyHandlers);
 }
 
 function closeHistory() {
@@ -483,11 +489,11 @@ function closeHistory() {
     renderInitialSavedState();
 }
 
-function viewHistoryEntry(entryId) {
-    const entry = loadCountingHistory().find((historyEntry) => historyEntry.id === entryId);
+async function viewHistoryEntry(entryId) {
+    const entry = (await loadCountingHistory()).find((historyEntry) => historyEntry.id === entryId);
 
     if (!entry) {
-        openHistory();
+        await openHistory();
         return;
     }
 

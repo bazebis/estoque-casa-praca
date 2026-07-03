@@ -1,4 +1,4 @@
-import { getActiveUnits, getAllUnits, getBaseUnits, getUnitById, resolveUnitSnapshot } from "./units.js";
+import { getActiveUnits, getBaseUnits, getUnitById, resolveUnitSnapshot } from "./units.js";
 import { buildCountReport } from "./report.js";
 
 let editingItemId = null;
@@ -241,8 +241,8 @@ function renderEditForm(item, handlers) {
     return form;
 }
 
-function saveEditedItem(itemId, nameInput, unitSelect, handlers) {
-    const wasSaved = handlers.onUpdateItem(itemId, {
+async function saveEditedItem(itemId, nameInput, unitSelect, handlers) {
+    const wasSaved = await handlers.onUpdateItem(itemId, {
         name: nameInput.value.trim(),
         unitId: unitSelect.value
     });
@@ -342,8 +342,8 @@ function renderUnitEditForm(unit, handlers) {
     activeLabel.append(activeInput, "Ativa");
 
     const saveButton = createButton("Salvar", "catalog-action-button");
-    saveButton.addEventListener("click", () => {
-        const wasSaved = handlers.onUpdateUnit(unit.id, {
+    saveButton.addEventListener("click", async () => {
+        const wasSaved = await handlers.onUpdateUnit(unit.id, {
             label: labelInput.value.trim(),
             baseUnit: baseSelect.value,
             factor: factorInput.value,
@@ -492,8 +492,8 @@ function renderCountingForm(card, viewModel, handlers) {
     renderCompatibleUnitSelect(unitSelect, viewModel.defaultUnitId, viewModel.baseUnit);
 
     const addButton = createButton("+ Adicionar entrada", "counting-primary-button");
-    addButton.addEventListener("click", () => {
-        const wasAdded = handlers.onAddEntry(quantityInput.value, unitSelect.value);
+    addButton.addEventListener("click", async () => {
+        const wasAdded = await handlers.onAddEntry(quantityInput.value, unitSelect.value);
 
         if (!wasAdded) {
             alert("Informe uma quantidade maior que zero.");
@@ -804,6 +804,29 @@ export function renderBackupImportPreview(preview) {
     setBackupImportActionsVisible(true);
 }
 
+export function renderStorageStatusNotice(status) {
+    const container = getElement("storage-status");
+
+    if (!container) {
+        return;
+    }
+
+    if (status?.warning) {
+        container.textContent = status.warning;
+        container.hidden = false;
+        return;
+    }
+
+    if (status?.migrated && status?.isUsingIndexedDB) {
+        container.textContent = "Dados locais preparados no IndexedDB.";
+        container.hidden = false;
+        return;
+    }
+
+    container.textContent = "";
+    container.hidden = true;
+}
+
 export function renderDraftNotice(draft, handlers) {
     const container = getElement("rascunho-aviso");
     container.innerHTML = "";
@@ -1039,8 +1062,8 @@ function connectCatalogImportEvents(handlers) {
         }
     });
 
-    getElement("btn-confirmar-importacao").addEventListener("click", () => {
-        handlers.onConfirmCatalogImport(getCatalogImportMode());
+    getElement("btn-confirmar-importacao").addEventListener("click", async () => {
+        await handlers.onConfirmCatalogImport(getCatalogImportMode());
     });
 
     getElement("btn-cancelar-importacao").addEventListener("click", () => {
@@ -1075,8 +1098,8 @@ function connectBackupEvents(handlers) {
         }
     });
 
-    getElement("btn-confirmar-backup").addEventListener("click", () => {
-        handlers.onConfirmBackupImport(getBackupImportMode());
+    getElement("btn-confirmar-backup").addEventListener("click", async () => {
+        await handlers.onConfirmBackupImport(getBackupImportMode());
     });
 
     getElement("btn-cancelar-backup").addEventListener("click", () => {
@@ -1087,8 +1110,8 @@ function connectBackupEvents(handlers) {
 }
 
 function connectUnitEvents(handlers) {
-    getElement("btn-adicionar-unidade").addEventListener("click", () => {
-        const wasAdded = handlers.onAddUnit(getNewUnitFormValues());
+    getElement("btn-adicionar-unidade").addEventListener("click", async () => {
+        const wasAdded = await handlers.onAddUnit(getNewUnitFormValues());
 
         if (wasAdded) {
             clearNewUnitInputs();
@@ -1101,8 +1124,8 @@ export function connectEvents(handlers) {
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
     getElement("btn-historico").addEventListener("click", handlers.onOpenHistory);
     getElement("btn-fechar-historico").addEventListener("click", handlers.onCloseHistory);
-    getElement("btn-adicionar-item").addEventListener("click", () => {
-        const wasAdded = handlers.onAddItem(getNewItemFormValues());
+    getElement("btn-adicionar-item").addEventListener("click", async () => {
+        const wasAdded = await handlers.onAddItem(getNewItemFormValues());
 
         if (wasAdded) {
             clearNewItemInputs();

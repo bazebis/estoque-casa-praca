@@ -1,6 +1,17 @@
 import { initialCatalogItems } from "./seed.js";
 import { normalizeHistoryEntry } from "./history.js";
 import { normalizeCustomUnits } from "./units.js";
+import {
+    bulkPut,
+    deleteFromStore,
+    getAllFromStore,
+    getFromStore,
+    isIndexedDBAvailable,
+    openDatabase,
+    putInStore,
+    replaceStore,
+    storeNames
+} from "./db.js";
 
 const catalogStorageKey = "itensEstoque";
 const countingDraftStorageKey = "countingDraft";
@@ -8,6 +19,13 @@ const countingHistoryStorageKey = "countingHistory";
 const catalogBackupBeforeImportStorageKey = "catalogBackupBeforeImport";
 const backupBeforeJsonImportStorageKey = "backupBeforeJsonImport";
 const customUnitsStorageKey = "customUnits";
+const migrationFlagKey = "localStorageMigrationCompleted";
+const catalogInitializedKey = "catalogInitialized";
+const currentDraftKey = "current";
+
+let isStorageInitialized = false;
+let shouldUseIndexedDB = false;
+let storageWarning = "";
 
 function readJson(storageKey) {
     const storedValue = localStorage.getItem(storageKey);
@@ -23,7 +41,37 @@ function readJson(storageKey) {
     }
 }
 
-export function loadCatalog() {
+function writeJson(storageKey, value) {
+    localStorage.setItem(storageKey, JSON.stringify(value));
+}
+
+function sortHistory(history) {
+    return history
+        .map(normalizeHistoryEntry)
+        .filter(Boolean)
+        .sort((firstEntry, secondEntry) => new Date(secondEntry.finishedAt) - new Date(firstEntry.finishedAt));
+}
+
+function createLegacyItemId(item, index) {
+    const name = String(item?.name || item?.nome || "item").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+    return `legacy_${name}_${index}_${Date.now()}`;
+}
+
+function normalizeCatalogRecords(items) {
+    if (!Array.isArray(items)) {
+        return [];
+    }
+
+    return items
+        .map((item, index) => ({
+            ...item,
+            id: item.id || createLegacyItemId(item, index)
+        }))
+        .filter((item) => item.id);
+}
+
+function loadLocalCatalog() {
     const storedCatalog = readJson(catalogStorageKey);
 
     if (!Array.isArray(storedCatalog)) {
@@ -33,75 +81,302 @@ export function loadCatalog() {
     return storedCatalog;
 }
 
-export function saveCatalog(items) {
-    localStorage.setItem(catalogStorageKey, JSON.stringify(items));
+function saveLocalCatalog(items) {
+    writeJson(catalogStorageKey, items);
 }
 
-export function saveCatalogBackupBeforeImport(items) {
+function loadLocalCustomUnits() {
+    return normalizeCustomUnits(readJson(customUnitsStorageKey));
+}
+
+function saveLocalCustomUnits(units) {
+    const normalizedUnits = normalizeCustomUnits(units);
+
+    writeJson(customUnitsStorageKey, normalizedUnits);
+    return normalizedUnits;
+}
+
+function loadLocalCountingDraft() {
+    return readJson(countingDraftStorageKey);
+}
+
+function saveLocalCountingDraft(draft) {
+    writeJson(countingDraftStorageKey, draft);
+}
+
+function clearLocalCountingDraft() {
+    localStorage.removeItem(countingDraftStorageKey);
+}
+
+function loadLocalCountingHistory() {
+    const storedHistory = readJson(countingHistoryStorageKey);
+
+    return Array.isArray(storedHistory) ? sortHistory(storedHistory) : [];
+}
+
+function saveLocalCountingHistory(history) {
+    const sortedHistory = sortHistory(Array.isArray(history) ? history : []);
+
+    writeJson(countingHistoryStorageKey, sortedHistory);
+    return sortedHistory;
+}
+
+function saveLocalCatalogBackupBeforeImport(items) {
     const backup = {
         createdAt: new Date().toISOString(),
         items
     };
 
-    localStorage.setItem(catalogBackupBeforeImportStorageKey, JSON.stringify(backup));
+    writeJson(catalogBackupBeforeImportStorageKey, backup);
 }
 
-export function loadRelevantLocalStorageKeys() {
+function saveLocalBackupBeforeJsonImport(state) {
+    const backup = {
+        createdAt: new Date().toISOString(),
+        state
+    };
+
+    writeJson(backupBeforeJsonImportStorageKey, backup);
+}
+
+function loadLocalRelevantStorageKeys() {
     return {
         catalogBackupBeforeImport: readJson(catalogBackupBeforeImportStorageKey),
         backupBeforeJsonImport: readJson(backupBeforeJsonImportStorageKey)
     };
 }
 
-export function loadCustomUnits() {
-    return normalizeCustomUnits(readJson(customUnitsStorageKey));
+function createBackupRecord(key, value) {
+    return value ? { ...value, key } : null;
 }
 
-export function saveCustomUnits(units) {
+async function saveBackupRecord(key, value) {
+    const backup = createBackupRecord(key, value);
+
+    if (backup) {
+        await putInStore(storeNames.backups, backup, key);
+    }
+}
+
+async function migrateLocalStorageToIndexedDB() {
+    const migrationState = await getFromStore(storeNames.appState, migrationFlagKey);
+
+    if (migrationState?.value === true) {
+        return false;
+    }
+
+    const localCatalog = readJson(catalogStorageKey);
+    const localCustomUnits = loadLocalCustomUnits();
+    const localDraft = loadLocalCountingDraft();
+    const localHistory = loadLocalCountingHistory();
+    const lastFinalizedCount = normalizeHistoryEntry(readJson("lastFinalizedCount"));
+
+    if (Array.isArray(localCatalog)) {
+        await replaceStore(storeNames.catalog, normalizeCatalogRecords(localCatalog));
+        await putInStore(storeNames.appState, { key: catalogInitializedKey, value: true });
+    }
+
+    if (localCustomUnits.length > 0) {
+        await replaceStore(storeNames.customUnits, localCustomUnits);
+    }
+
+    if (localDraft) {
+        await putInStore(storeNames.countingDraft, { value: localDraft }, currentDraftKey);
+    }
+
+    if (localHistory.length > 0 || lastFinalizedCount) {
+        const historyById = new Map(localHistory.map((entry) => [entry.id, entry]));
+
+        if (lastFinalizedCount) {
+            historyById.set(lastFinalizedCount.id, lastFinalizedCount);
+        }
+
+        await bulkPut(storeNames.countingHistory, [...historyById.values()]);
+    }
+
+    await saveBackupRecord(catalogBackupBeforeImportStorageKey, readJson(catalogBackupBeforeImportStorageKey));
+    await saveBackupRecord(backupBeforeJsonImportStorageKey, readJson(backupBeforeJsonImportStorageKey));
+    await putInStore(storeNames.appState, {
+        key: migrationFlagKey,
+        value: true,
+        completedAt: new Date().toISOString()
+    });
+
+    return true;
+}
+
+async function runWithFallback(dbOperation, fallbackOperation) {
+    if (!shouldUseIndexedDB) {
+        return fallbackOperation();
+    }
+
+    try {
+        return await dbOperation();
+    } catch (error) {
+        shouldUseIndexedDB = false;
+        storageWarning = "IndexedDB falhou. Usando LocalStorage como fallback.";
+        console.warn(storageWarning, error);
+        return fallbackOperation();
+    }
+}
+
+export async function initializeStorage() {
+    if (isStorageInitialized) {
+        return getStorageStatus();
+    }
+
+    if (!isIndexedDBAvailable()) {
+        shouldUseIndexedDB = false;
+        storageWarning = "IndexedDB indisponível. Usando LocalStorage como fallback.";
+        isStorageInitialized = true;
+        return getStorageStatus();
+    }
+
+    try {
+        await openDatabase();
+        shouldUseIndexedDB = true;
+        const wasMigrated = await migrateLocalStorageToIndexedDB();
+        isStorageInitialized = true;
+        return {
+            ...getStorageStatus(),
+            migrated: wasMigrated
+        };
+    } catch (error) {
+        shouldUseIndexedDB = false;
+        storageWarning = "IndexedDB falhou. Usando LocalStorage como fallback.";
+        isStorageInitialized = true;
+        console.warn(storageWarning, error);
+        return getStorageStatus();
+    }
+}
+
+export function getStorageStatus() {
+    return {
+        isIndexedDBAvailable: isIndexedDBAvailable(),
+        isUsingIndexedDB: shouldUseIndexedDB,
+        warning: storageWarning
+    };
+}
+
+export async function loadCatalog() {
+    return runWithFallback(
+        async () => {
+            const catalogItems = await getAllFromStore(storeNames.catalog);
+            const catalogState = await getFromStore(storeNames.appState, catalogInitializedKey);
+
+            if (catalogItems.length > 0 || catalogState?.value === true) {
+                return catalogItems;
+            }
+
+            return [...initialCatalogItems];
+        },
+        loadLocalCatalog
+    );
+}
+
+export async function saveCatalog(items) {
+    const catalogItems = normalizeCatalogRecords(items);
+
+    await runWithFallback(
+        async () => {
+            await replaceStore(storeNames.catalog, catalogItems);
+            await putInStore(storeNames.appState, { key: catalogInitializedKey, value: true });
+        },
+        () => saveLocalCatalog(catalogItems)
+    );
+    saveLocalCatalog(catalogItems);
+}
+
+export async function saveCatalogBackupBeforeImport(items) {
+    const backup = {
+        createdAt: new Date().toISOString(),
+        items
+    };
+
+    await runWithFallback(
+        () => saveBackupRecord(catalogBackupBeforeImportStorageKey, backup),
+        () => saveLocalCatalogBackupBeforeImport(items)
+    );
+    saveLocalCatalogBackupBeforeImport(items);
+}
+
+export async function loadRelevantLocalStorageKeys() {
+    return runWithFallback(
+        async () => ({
+            catalogBackupBeforeImport: await getFromStore(storeNames.backups, catalogBackupBeforeImportStorageKey),
+            backupBeforeJsonImport: await getFromStore(storeNames.backups, backupBeforeJsonImportStorageKey)
+        }),
+        loadLocalRelevantStorageKeys
+    );
+}
+
+export async function loadCustomUnits() {
+    return runWithFallback(
+        async () => normalizeCustomUnits(await getAllFromStore(storeNames.customUnits)),
+        loadLocalCustomUnits
+    );
+}
+
+export async function saveCustomUnits(units) {
     const normalizedUnits = normalizeCustomUnits(units);
 
-    localStorage.setItem(customUnitsStorageKey, JSON.stringify(normalizedUnits));
+    await runWithFallback(
+        async () => {
+            await replaceStore(storeNames.customUnits, normalizedUnits);
+        },
+        () => saveLocalCustomUnits(normalizedUnits)
+    );
+    saveLocalCustomUnits(normalizedUnits);
+
     return normalizedUnits;
 }
 
-export function loadCountingDraft() {
-    return readJson(countingDraftStorageKey);
+export async function loadCountingDraft() {
+    return runWithFallback(
+        async () => (await getFromStore(storeNames.countingDraft, currentDraftKey))?.value || null,
+        loadLocalCountingDraft
+    );
 }
 
-export function saveCountingDraft(draft) {
-    localStorage.setItem(countingDraftStorageKey, JSON.stringify(draft));
+export async function saveCountingDraft(draft) {
+    await runWithFallback(
+        () => putInStore(storeNames.countingDraft, { value: draft }, currentDraftKey),
+        () => saveLocalCountingDraft(draft)
+    );
+    saveLocalCountingDraft(draft);
 }
 
-export function clearCountingDraft() {
-    localStorage.removeItem(countingDraftStorageKey);
+export async function clearCountingDraft() {
+    await runWithFallback(
+        () => deleteFromStore(storeNames.countingDraft, currentDraftKey),
+        clearLocalCountingDraft
+    );
+    clearLocalCountingDraft();
 }
 
-export function loadCountingHistory() {
-    const storedHistory = readJson(countingHistoryStorageKey);
-
-    if (!Array.isArray(storedHistory)) {
-        return [];
-    }
-
-    return storedHistory
-        .map(normalizeHistoryEntry)
-        .filter(Boolean)
-        .sort((firstEntry, secondEntry) => new Date(secondEntry.finishedAt) - new Date(firstEntry.finishedAt));
+export async function loadCountingHistory() {
+    return runWithFallback(
+        async () => sortHistory(await getAllFromStore(storeNames.countingHistory)),
+        loadLocalCountingHistory
+    );
 }
 
-export function saveCountingHistory(history) {
-    const normalizedHistory = Array.isArray(history)
-        ? history.map(normalizeHistoryEntry).filter(Boolean)
-        : [];
-    const sortedHistory = normalizedHistory
-        .sort((firstEntry, secondEntry) => new Date(secondEntry.finishedAt) - new Date(firstEntry.finishedAt));
+export async function saveCountingHistory(history) {
+    const sortedHistory = sortHistory(Array.isArray(history) ? history : []);
 
-    localStorage.setItem(countingHistoryStorageKey, JSON.stringify(sortedHistory));
+    await runWithFallback(
+        async () => {
+            await replaceStore(storeNames.countingHistory, sortedHistory);
+        },
+        () => saveLocalCountingHistory(sortedHistory)
+    );
+    saveLocalCountingHistory(sortedHistory);
+
     return sortedHistory;
 }
 
-export function addCountHistoryEntry(entry) {
-    const history = loadCountingHistory();
+export async function addCountHistoryEntry(entry) {
+    const history = await loadCountingHistory();
     const nextHistoryById = new Map(history.map((historyEntry) => [historyEntry.id, historyEntry]));
     const normalizedEntry = normalizeHistoryEntry(entry);
 
@@ -114,15 +389,19 @@ export function addCountHistoryEntry(entry) {
     return saveCountingHistory([...nextHistoryById.values()]);
 }
 
-export function loadLastFinalizedCount() {
-    return loadCountingHistory()[0] || null;
+export async function loadLastFinalizedCount() {
+    return (await loadCountingHistory())[0] || null;
 }
 
-export function saveBackupBeforeJsonImport(state) {
+export async function saveBackupBeforeJsonImport(state) {
     const backup = {
         createdAt: new Date().toISOString(),
         state
     };
 
-    localStorage.setItem(backupBeforeJsonImportStorageKey, JSON.stringify(backup));
+    await runWithFallback(
+        () => saveBackupRecord(backupBeforeJsonImportStorageKey, backup),
+        () => saveLocalBackupBeforeJsonImport(state)
+    );
+    saveLocalBackupBeforeJsonImport(state);
 }
