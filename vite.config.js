@@ -119,6 +119,9 @@ function pwaServiceWorkerPlugin() {
     };
 }
 
-export default defineConfig({
+const githubPagesBase = "/estoque-casa-praca/";
+
+export default defineConfig(({ mode }) => ({
+    base: mode === "development" ? "/" : githubPagesBase,
     plugins: [pwaServiceWorkerPlugin()]
-});
+}));

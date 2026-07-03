@@ -59,7 +59,10 @@ export function registerPwa() {
             window.location.reload();
         });
 
-        navigator.serviceWorker.register("/sw.js")
+        const baseUrl = import.meta.env.BASE_URL || "/";
+        const serviceWorkerUrl = new URL(`${baseUrl}sw.js`, window.location.origin);
+
+        navigator.serviceWorker.register(serviceWorkerUrl.href, { scope: baseUrl })
             .then((registration) => {
                 watchForUpdates(registration);
 
