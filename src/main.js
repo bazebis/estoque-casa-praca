@@ -1,6 +1,7 @@
 import "./styles.css";
 import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
+import { parseCatalogCsv } from "./csvImport.js";
 import { buildCountReport } from "./report.js";
 import {
     addCountHistoryEntry,
@@ -8,6 +9,7 @@ import {
     loadCatalog,
     loadCountingDraft,
     loadLastFinalizedCount,
+    saveCatalogBackupBeforeImport,
     saveCatalog,
     saveCountingDraft
 } from "./storage.js";
@@ -20,7 +22,10 @@ import {
     renderCountingView,
     renderDraftNotice,
     renderLastFinalizedNotice,
+    renderCatalogImportPreview,
+    resetCatalogImportPreview,
     showFinalSummary,
+    showCatalogImportStatus,
     updateConfigList
 } from "./ui.js";
 
@@ -28,6 +33,7 @@ const catalog = createCatalog(loadCatalog());
 const counting = createCounting(catalog.listItems, loadCountingDraft());
 let lastFinalizedCount = loadLastFinalizedCount();
 let isCountingVisible = false;
+let pendingCatalogImport = null;
 
 saveCatalog(catalog.listItems());
 
@@ -118,6 +124,46 @@ function deleteItem(itemId) {
 function reorderItems(orderedIds) {
     saveCatalog(catalog.reorderItems(orderedIds));
     refreshConfigList();
+}
+
+function analyzeCatalogImport(csvText) {
+    pendingCatalogImport = parseCatalogCsv(csvText, catalog.listItems());
+    renderCatalogImportPreview(pendingCatalogImport);
+}
+
+function confirmReplaceImport() {
+    return window.confirm(
+        "Substituir o catálogo atual pelos itens do CSV? Um backup simples do catálogo atual será salvo."
+    );
+}
+
+function applyCatalogImport(mode) {
+    if (!pendingCatalogImport?.items?.length) {
+        showCatalogImportStatus("Analise um CSV válido antes de importar.");
+        return;
+    }
+
+    if (mode === "replace" && !confirmReplaceImport()) {
+        return;
+    }
+
+    if (mode === "replace") {
+        saveCatalogBackupBeforeImport(catalog.listItems());
+        saveCatalog(catalog.replaceWithImportedItems(pendingCatalogImport.items));
+    } else if (mode === "upsert") {
+        saveCatalog(catalog.upsertImportedItems(pendingCatalogImport.items));
+    } else {
+        saveCatalog(catalog.appendImportedItems(pendingCatalogImport.items));
+    }
+
+    pendingCatalogImport = null;
+    refreshConfigList();
+    resetCatalogImportPreview();
+    showCatalogImportStatus("Catálogo importado com sucesso.");
+}
+
+function cancelCatalogImport() {
+    pendingCatalogImport = null;
 }
 
 function saveCountingState() {
@@ -295,6 +341,9 @@ connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
     onAddItem: addItem,
+    onAnalyzeCatalogImport: analyzeCatalogImport,
+    onConfirmCatalogImport: applyCatalogImport,
+    onCancelCatalogImport: cancelCatalogImport,
     onRestartCounting: restartCounting
 });
 

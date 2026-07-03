@@ -43,6 +43,34 @@
             <input type="text" id="novo-item-nome" placeholder="Nome do Item">
             <select id="novo-item-unidade" required></select>
             <button id="btn-adicionar-item">Adicionar Item</button>
+
+            <section class="catalog-import">
+                <h3>Importar catálogo</h3>
+                <p>CSV com cabeçalho e colunas nome e unidade. Também aceita separador ponto e vírgula.</p>
+                <input type="file" id="catalog-import-file" accept=".csv,text/csv">
+                <div class="catalog-import-modes" role="radiogroup" aria-label="Modo de importação">
+                    <label>
+                        <input type="radio" name="catalog-import-mode" value="append" checked>
+                        Adicionar ao catálogo atual
+                    </label>
+                    <label>
+                        <input type="radio" name="catalog-import-mode" value="upsert">
+                        Atualizar existentes e adicionar novos
+                    </label>
+                    <label>
+                        <input type="radio" name="catalog-import-mode" value="replace">
+                        Substituir catálogo atual
+                    </label>
+                </div>
+                <button id="btn-analisar-csv">Analisar CSV</button>
+                <div id="catalog-import-status" class="catalog-import-status" aria-live="polite"></div>
+                <div id="catalog-import-preview" class="catalog-import-preview"></div>
+                <div id="catalog-import-actions" class="catalog-import-actions" hidden>
+                    <button id="btn-confirmar-importacao">Confirmar importação</button>
+                    <button id="btn-cancelar-importacao">Cancelar importação</button>
+                </div>
+            </section>
+
             <button id="btn-fechar-config">Fechar</button>
         </div>
     </div>

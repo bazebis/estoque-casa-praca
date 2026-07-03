@@ -39,6 +39,25 @@ function normalizeItems(items) {
         .map((item, index) => ({ ...item, order: index }));
 }
 
+function normalizeCatalogName(name) {
+    return String(name || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+}
+
+function createImportedItem(importedItem, order) {
+    const name = String(importedItem.name || "").trim();
+
+    return {
+        id: createItemId(name),
+        name,
+        unitId: normalizeUnitId(importedItem.unitId || importedItem.rawUnit),
+        active: true,
+        order
+    };
+}
+
 export function createCatalog(initialItems) {
     let items = normalizeItems(initialItems);
 
@@ -107,11 +126,53 @@ export function createCatalog(initialItems) {
         return listItems();
     }
 
+    function replaceWithImportedItems(importedItems) {
+        items = importedItems
+            .map((importedItem, index) => createImportedItem(importedItem, index))
+            .filter((item) => item.name);
+
+        return listItems();
+    }
+
+    function appendImportedItems(importedItems) {
+        const newItems = importedItems
+            .map((importedItem, index) => createImportedItem(importedItem, items.length + index))
+            .filter((item) => item.name);
+
+        items = [...items, ...newItems];
+        return listItems();
+    }
+
+    function upsertImportedItems(importedItems) {
+        const itemByName = new Map(items.map((item) => [normalizeCatalogName(item.name), item]));
+        const itemsToAdd = [];
+
+        importedItems.forEach((importedItem) => {
+            const name = String(importedItem.name || "").trim();
+            const existingItem = itemByName.get(normalizeCatalogName(name));
+
+            if (existingItem) {
+                existingItem.unitId = normalizeUnitId(importedItem.unitId || importedItem.rawUnit);
+                return;
+            }
+
+            const newItem = createImportedItem(importedItem, items.length + itemsToAdd.length);
+            itemsToAdd.push(newItem);
+            itemByName.set(normalizeCatalogName(name), newItem);
+        });
+
+        items = [...items, ...itemsToAdd].map((item, index) => ({ ...item, order: index }));
+        return listItems();
+    }
+
     return {
         listItems,
         addItem,
         deleteItem,
         updateItem,
-        reorderItems
+        reorderItems,
+        replaceWithImportedItems,
+        appendImportedItems,
+        upsertImportedItems
     };
 }

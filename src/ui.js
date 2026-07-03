@@ -51,6 +51,22 @@ function getNewItemFormValues() {
     };
 }
 
+function getCatalogImportMode() {
+    return document.querySelector("input[name='catalog-import-mode']:checked")?.value || "append";
+}
+
+function clearCatalogImportFile() {
+    getElement("catalog-import-file").value = "";
+}
+
+function setCatalogImportStatus(message) {
+    getElement("catalog-import-status").textContent = message;
+}
+
+function setCatalogImportActionsVisible(isVisible) {
+    getElement("catalog-import-actions").hidden = !isVisible;
+}
+
 function createUnitOption(unit, selectedUnitId) {
     const option = document.createElement("option");
     option.value = unit.id;
@@ -367,6 +383,63 @@ function createLastFinalizedDateText(finalizedCount) {
     return "Existe uma contagem finalizada salva neste dispositivo.";
 }
 
+function createImportItemStatus(item) {
+    const statuses = [];
+
+    if (!item.wasUnitRecognized) {
+        statuses.push("unidade não reconhecida");
+    }
+
+    if (item.duplicateInFile) {
+        statuses.push("duplicado no arquivo");
+    } else if (item.duplicateWithCatalog) {
+        statuses.push("já existe no catálogo");
+    }
+
+    return statuses.length ? statuses.join(", ") : "ok";
+}
+
+function renderImportWarningList(warnings) {
+    if (warnings.length === 0) {
+        return null;
+    }
+
+    const list = document.createElement("ul");
+    list.className = "catalog-import-warnings";
+
+    warnings.forEach((warning) => {
+        const item = document.createElement("li");
+        item.textContent = `Linha ${warning.row}: ${warning.message}`;
+        list.appendChild(item);
+    });
+
+    return list;
+}
+
+function renderImportItemPreview(items) {
+    const list = document.createElement("ul");
+    list.className = "catalog-import-list";
+
+    items.forEach((item) => {
+        const listItem = document.createElement("li");
+        listItem.className = "catalog-import-item";
+
+        const name = document.createElement("strong");
+        name.textContent = item.name;
+
+        const unitText = document.createElement("span");
+        unitText.textContent = `${item.rawUnit || "(sem unidade)"} -> ${item.unitLabel}`;
+
+        const status = document.createElement("small");
+        status.textContent = createImportItemStatus(item);
+
+        listItem.append(name, unitText, status);
+        list.appendChild(listItem);
+    });
+
+    return list;
+}
+
 function copyWithFallback(text) {
     const textarea = document.createElement("textarea");
     textarea.value = text;
@@ -400,6 +473,40 @@ async function copyFinalReport() {
 
 export function renderUnitOptions() {
     renderUnitSelect(getElement("novo-item-unidade"));
+}
+
+export function resetCatalogImportPreview() {
+    getElement("catalog-import-preview").innerHTML = "";
+    setCatalogImportStatus("");
+    setCatalogImportActionsVisible(false);
+}
+
+export function showCatalogImportStatus(message) {
+    setCatalogImportStatus(message);
+}
+
+export function renderCatalogImportPreview(result) {
+    const preview = getElement("catalog-import-preview");
+    preview.innerHTML = "";
+
+    if (result.error) {
+        setCatalogImportStatus(result.error);
+        setCatalogImportActionsVisible(false);
+        return;
+    }
+
+    setCatalogImportStatus(
+        `${result.validCount} linha(s) válida(s). ${result.ignoredCount} linha(s) ignorada(s).`
+    );
+
+    const warningList = renderImportWarningList(result.warnings);
+
+    if (warningList) {
+        preview.appendChild(warningList);
+    }
+
+    preview.appendChild(renderImportItemPreview(result.items));
+    setCatalogImportActionsVisible(result.items.length > 0);
 }
 
 export function renderDraftNotice(draft, handlers) {
@@ -561,6 +668,40 @@ export function sendWhatsappMessage() {
     window.open(`https://wa.me/5516997530847?text=${message}`, "_blank");
 }
 
+function connectCatalogImportEvents(handlers) {
+    getElement("catalog-import-file").addEventListener("change", () => {
+        resetCatalogImportPreview();
+        handlers.onCancelCatalogImport();
+    });
+
+    getElement("btn-analisar-csv").addEventListener("click", async () => {
+        const file = getElement("catalog-import-file").files[0];
+
+        if (!file) {
+            setCatalogImportStatus("Selecione um arquivo CSV.");
+            return;
+        }
+
+        try {
+            const text = await file.text();
+            handlers.onAnalyzeCatalogImport(text);
+        } catch {
+            setCatalogImportStatus("Não foi possível ler o arquivo CSV.");
+            setCatalogImportActionsVisible(false);
+        }
+    });
+
+    getElement("btn-confirmar-importacao").addEventListener("click", () => {
+        handlers.onConfirmCatalogImport(getCatalogImportMode());
+    });
+
+    getElement("btn-cancelar-importacao").addEventListener("click", () => {
+        resetCatalogImportPreview();
+        clearCatalogImportFile();
+        handlers.onCancelCatalogImport();
+    });
+}
+
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
@@ -572,6 +713,7 @@ export function connectEvents(handlers) {
         }
     });
     getElement("btn-fechar-config").addEventListener("click", closeConfigModal);
+    connectCatalogImportEvents(handlers);
     getElement("mostrar-zerados").addEventListener("change", () => {
         getElement("copiar-feedback").textContent = "";
         renderFinalReport();

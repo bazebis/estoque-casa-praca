@@ -3,6 +3,7 @@ import { initialCatalogItems } from "./seed.js";
 const catalogStorageKey = "itensEstoque";
 const countingDraftStorageKey = "countingDraft";
 const countingHistoryStorageKey = "countingHistory";
+const catalogBackupBeforeImportStorageKey = "catalogBackupBeforeImport";
 
 function readJson(storageKey) {
     const storedValue = localStorage.getItem(storageKey);
@@ -30,6 +31,15 @@ export function loadCatalog() {
 
 export function saveCatalog(items) {
     localStorage.setItem(catalogStorageKey, JSON.stringify(items));
+}
+
+export function saveCatalogBackupBeforeImport(items) {
+    const backup = {
+        createdAt: new Date().toISOString(),
+        items
+    };
+
+    localStorage.setItem(catalogBackupBeforeImportStorageKey, JSON.stringify(backup));
 }
 
 export function loadCountingDraft() {

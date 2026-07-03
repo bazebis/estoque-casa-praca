@@ -16,12 +16,17 @@ const unitAliases = {
     unidade: "un",
     unidades: "un",
     un: "un",
+    "unidade (un)": "un",
     fardos: "fardo_6",
     fardo: "fardo_6",
+    "fardos 6 un": "fardo_6",
     "fardos 6un": "fardo_6",
+    "fardo 6 un": "fardo_6",
     "fardo 6un": "fardo_6",
     fardo_6: "fardo_6",
+    "fardos 12 un": "fardo_12",
     "fardos 12un": "fardo_12",
+    "fardo 12 un": "fardo_12",
     "fardo 12un": "fardo_12",
     fardo_12: "fardo_12",
     kg: "kg",
@@ -61,6 +66,14 @@ export function formatQuantity(value, unitId) {
     const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
 
     return `${safeValue} ${unit.label}`;
+}
+
+export function isKnownUnitInput(rawUnit) {
+    const normalizedUnit = String(rawUnit || "")
+        .trim()
+        .toLowerCase();
+
+    return Boolean(unitAliases[normalizedUnit]);
 }
 
 export function normalizeUnitId(rawUnit) {
