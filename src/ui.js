@@ -1,4 +1,4 @@
-import { formatQuantity, getUnitById, getUnits } from "./units.js";
+import { getUnitById, getUnits } from "./units.js";
 
 let editingItemId = null;
 
@@ -14,6 +14,12 @@ function closeModal(modalId) {
     getElement(modalId).style.display = "none";
 }
 
+function formatNumber(value) {
+    return Number(value).toLocaleString("pt-BR", {
+        maximumFractionDigits: 3
+    });
+}
+
 function clearNewItemInputs() {
     getElement("novo-item-nome").value = "";
     getElement("novo-item-unidade").value = "";
@@ -26,19 +32,11 @@ function getNewItemFormValues() {
     };
 }
 
-function getQuantityValue() {
-    return getElement("modal-quantidade").value;
-}
-
-function clearQuantityInput() {
-    getElement("modal-quantidade").value = "";
-}
-
-function buildFinalMessage(items) {
+function buildFinalMessage(summaries) {
     let message = "Itens em Estoque:\n";
 
-    items.forEach((item) => {
-        message += `- ${item.name}: ${formatQuantity(item.qtd, item.unitId)}\n`;
+    summaries.forEach((summary) => {
+        message += `- ${summary.item.name}: ${formatNumber(summary.totalBase)} ${summary.baseUnit}\n`;
     });
 
     return message;
@@ -52,19 +50,31 @@ function createUnitOption(unit, selectedUnitId) {
     return option;
 }
 
-function renderUnitSelect(selectElement, selectedUnitId = "") {
+function renderUnitSelect(selectElement, selectedUnitId = "", includePlaceholder = true) {
     selectElement.innerHTML = "";
 
-    const placeholderOption = document.createElement("option");
-    placeholderOption.value = "";
-    placeholderOption.textContent = "Selecione a unidade...";
-    placeholderOption.disabled = true;
-    placeholderOption.selected = !selectedUnitId;
-    selectElement.appendChild(placeholderOption);
+    if (includePlaceholder) {
+        const placeholderOption = document.createElement("option");
+        placeholderOption.value = "";
+        placeholderOption.textContent = "Selecione a unidade...";
+        placeholderOption.disabled = true;
+        placeholderOption.selected = !selectedUnitId;
+        selectElement.appendChild(placeholderOption);
+    }
 
     getUnits().forEach((unit) => {
         selectElement.appendChild(createUnitOption(unit, selectedUnitId));
     });
+}
+
+function renderCompatibleUnitSelect(selectElement, selectedUnitId, baseUnit) {
+    selectElement.innerHTML = "";
+
+    getUnits()
+        .filter((unit) => unit.baseUnit === baseUnit)
+        .forEach((unit) => {
+            selectElement.appendChild(createUnitOption(unit, selectedUnitId));
+        });
 }
 
 function createButton(text, className) {
@@ -202,6 +212,95 @@ function getOrderedItemIds(list) {
     return [...list.querySelectorAll(".catalog-item")].map((item) => item.dataset.itemId);
 }
 
+function renderEntryList(entries, handlers) {
+    const list = document.createElement("ul");
+    list.className = "counting-entry-list";
+
+    if (entries.length === 0) {
+        const emptyItem = document.createElement("li");
+        emptyItem.className = "counting-entry-empty";
+        emptyItem.textContent = "Nenhuma entrada adicionada.";
+        list.appendChild(emptyItem);
+        return list;
+    }
+
+    entries.forEach((entry) => {
+        const item = document.createElement("li");
+        item.className = "counting-entry-item";
+
+        const text = document.createElement("span");
+        text.textContent = `${formatNumber(entry.quantity)} ${getUnitById(entry.unitId).label}`;
+
+        const removeButton = createButton("Remover", "counting-secondary-button counting-remove-button");
+        removeButton.addEventListener("click", () => handlers.onRemoveEntry(entry.id));
+
+        item.append(text, removeButton);
+        list.appendChild(item);
+    });
+
+    return list;
+}
+
+function renderCountingEmptyState(container, handlers) {
+    const card = document.createElement("div");
+    card.className = "counting-card";
+
+    const title = document.createElement("h2");
+    title.textContent = "Nenhum item ativo para contar";
+
+    const finishButton = createButton("Finalizar", "counting-primary-button");
+    finishButton.addEventListener("click", handlers.onFinishCounting);
+
+    card.append(title, finishButton);
+    container.appendChild(card);
+}
+
+function renderCountingForm(card, viewModel, handlers) {
+    const quantityInput = document.createElement("input");
+    quantityInput.type = "number";
+    quantityInput.min = "0";
+    quantityInput.step = "any";
+    quantityInput.placeholder = "Quantidade";
+    quantityInput.className = "counting-input";
+
+    const unitSelect = document.createElement("select");
+    unitSelect.className = "counting-select";
+    renderCompatibleUnitSelect(unitSelect, viewModel.defaultUnitId, viewModel.baseUnit);
+
+    const addButton = createButton("+ Adicionar entrada", "counting-primary-button");
+    addButton.addEventListener("click", () => {
+        const wasAdded = handlers.onAddEntry(quantityInput.value, unitSelect.value);
+
+        if (!wasAdded) {
+            alert("Informe uma quantidade maior que zero.");
+        }
+    });
+
+    const form = document.createElement("div");
+    form.className = "counting-form";
+    form.append(quantityInput, unitSelect, addButton);
+    card.appendChild(form);
+}
+
+function renderCountingNavigation(card, viewModel, handlers) {
+    const actions = document.createElement("div");
+    actions.className = "counting-actions";
+
+    const previousButton = createButton("Voltar", "counting-secondary-button");
+    previousButton.disabled = viewModel.currentIndex === 0;
+    previousButton.addEventListener("click", handlers.onPreviousItem);
+
+    const nextButton = createButton("Próximo", "counting-secondary-button");
+    nextButton.disabled = viewModel.currentIndex >= viewModel.totalItems - 1;
+    nextButton.addEventListener("click", handlers.onNextItem);
+
+    const finishButton = createButton("Finalizar", "counting-primary-button");
+    finishButton.addEventListener("click", handlers.onFinishCounting);
+
+    actions.append(previousButton, nextButton, finishButton);
+    card.appendChild(actions);
+}
+
 export function renderUnitOptions() {
     renderUnitSelect(getElement("novo-item-unidade"));
 }
@@ -229,19 +328,52 @@ export function updateConfigList(items, handlers) {
     setupPointerReorder(list, handlers);
 }
 
-export function showCurrentItem(item, onFinishCounting) {
-    if (!item) {
-        onFinishCounting();
+export function renderCountingView(viewModel, handlers) {
+    const container = getElement("contagem-container");
+    container.innerHTML = "";
+    container.style.display = "block";
+    getElement("lista-final").style.display = "none";
+
+    if (!viewModel?.currentItem) {
+        renderCountingEmptyState(container, handlers);
         return;
     }
 
-    getElement("modal-mensagem").textContent = `Qtd de ${item.name}:`;
-    openModal("itemModal");
+    const card = document.createElement("div");
+    card.className = "counting-card";
+
+    const position = document.createElement("p");
+    position.className = "counting-position";
+    position.textContent = `Item ${viewModel.currentIndex + 1} de ${viewModel.totalItems}`;
+
+    const title = document.createElement("h2");
+    title.textContent = viewModel.currentItem.name;
+
+    const unit = document.createElement("p");
+    unit.className = "counting-unit";
+    unit.textContent = `Unidade padrão: ${getUnitById(viewModel.currentItem.unitId).label}`;
+
+    const total = document.createElement("p");
+    total.className = "counting-total";
+    total.textContent = `Total: ${formatNumber(viewModel.totalBase)} ${viewModel.baseUnit}`;
+
+    card.append(position, title, unit);
+    renderCountingForm(card, viewModel, handlers);
+    card.append(renderEntryList(viewModel.entries, handlers), total);
+    renderCountingNavigation(card, viewModel, handlers);
+    container.appendChild(card);
 }
 
-export function showFinalSummary(items) {
+export function hideCountingView() {
+    const container = getElement("contagem-container");
+    container.innerHTML = "";
+    container.style.display = "none";
+}
+
+export function showFinalSummary(summaries) {
+    hideCountingView();
     closeModal("itemModal");
-    getElement("mensagem-whatsapp").textContent = buildFinalMessage(items);
+    getElement("mensagem-whatsapp").textContent = buildFinalMessage(summaries);
     getElement("lista-final").style.display = "block";
 }
 
@@ -263,11 +395,6 @@ export function sendWhatsappMessage() {
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
-    getElement("btn-confirmar-quantidade").addEventListener("click", () => {
-        handlers.onConfirmQuantity(getQuantityValue());
-        clearQuantityInput();
-    });
-    getElement("btn-finalizar-contagem").addEventListener("click", handlers.onFinishCounting);
     getElement("btn-adicionar-item").addEventListener("click", () => {
         const wasAdded = handlers.onAddItem(getNewItemFormValues());
 

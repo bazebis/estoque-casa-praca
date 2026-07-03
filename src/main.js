@@ -1,23 +1,32 @@
 import "./styles.css";
 import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
-import { loadCatalog, saveCatalog } from "./storage.js";
+import {
+    clearCountingDraft,
+    loadCatalog,
+    loadCountingDraft,
+    saveCatalog,
+    saveCountingDraft
+} from "./storage.js";
 import {
     connectEvents,
     openConfigModal,
     renderUnitOptions,
-    showCurrentItem,
+    renderCountingView,
     showFinalSummary,
     updateConfigList
 } from "./ui.js";
 
 const catalog = createCatalog(loadCatalog());
-const counting = createCounting(catalog.listItems);
+const counting = createCounting(catalog.listItems, loadCountingDraft());
 
 saveCatalog(catalog.listItems());
 
 function finishCounting() {
-    showFinalSummary(counting.finishCounting());
+    const summaries = counting.finishCounting();
+    counting.clearSession();
+    clearCountingDraft();
+    showFinalSummary(summaries);
 }
 
 function refreshConfigList() {
@@ -39,19 +48,11 @@ function addItem(item) {
 }
 
 function updateItem(itemId, values) {
-    const previousItem = catalog.listItems().find((item) => item.id === itemId);
-    const items = catalog.updateItem(itemId, values);
-    const currentItem = items.find((item) => item.id === itemId);
-    const wasUpdated = Boolean(
-        previousItem &&
-        currentItem &&
-        (previousItem.name !== currentItem.name || previousItem.unitId !== currentItem.unitId)
-    );
-
-    if (!wasUpdated) {
+    if (!values.name.trim() || !values.unitId) {
         return false;
     }
 
+    const items = catalog.updateItem(itemId, values);
     saveCatalog(items);
     refreshConfigList();
     return true;
@@ -73,16 +74,62 @@ function reorderItems(orderedIds) {
     refreshConfigList();
 }
 
-function startCounting() {
-    showCurrentItem(counting.startCounting(), finishCounting);
+function saveCountingState() {
+    const draft = counting.getDraft();
+
+    if (draft) {
+        saveCountingDraft(draft);
+    }
 }
 
-function confirmQuantity(quantity) {
-    showCurrentItem(counting.confirmQuantity(quantity), finishCounting);
+function renderCountingState() {
+    renderCountingView(counting.getViewModel(), countingHandlers);
+}
+
+function startCounting() {
+    counting.startCounting();
+    saveCountingState();
+    renderCountingState();
+}
+
+function addCountingEntry(quantity, unitId) {
+    const wasAdded = counting.addEntry(quantity, unitId);
+
+    if (!wasAdded) {
+        return false;
+    }
+
+    saveCountingState();
+    renderCountingState();
+    return true;
+}
+
+function removeCountingEntry(entryId) {
+    counting.removeEntry(entryId);
+    saveCountingState();
+    renderCountingState();
+}
+
+function goToPreviousCountingItem() {
+    counting.goToPreviousItem();
+    saveCountingState();
+    renderCountingState();
+}
+
+function goToNextCountingItem() {
+    counting.goToNextItem();
+    saveCountingState();
+    renderCountingState();
 }
 
 function openCatalogConfig() {
     openConfigModal(catalog.listItems(), catalogHandlers);
+}
+
+function restartCounting() {
+    counting.clearSession();
+    clearCountingDraft();
+    location.reload();
 }
 
 const catalogHandlers = {
@@ -92,13 +139,23 @@ const catalogHandlers = {
     onReorderItems: reorderItems
 };
 
+const countingHandlers = {
+    onAddEntry: addCountingEntry,
+    onRemoveEntry: removeCountingEntry,
+    onPreviousItem: goToPreviousCountingItem,
+    onNextItem: goToNextCountingItem,
+    onFinishCounting: finishCounting
+};
+
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
-    onConfirmQuantity: confirmQuantity,
-    onFinishCounting: finishCounting,
     onAddItem: addItem,
-    onRestartCounting: counting.restartCounting
+    onRestartCounting: restartCounting
 });
 
 renderUnitOptions();
+
+if (counting.hasSession()) {
+    renderCountingState();
+}
