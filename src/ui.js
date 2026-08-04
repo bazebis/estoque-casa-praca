@@ -1227,6 +1227,9 @@ function connectAdminNavigationEvents(handlers) {
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
+    getElement("btn-home-templates").addEventListener("click", handlers.onOpenPilotCountTemplates);
+    getElement("btn-home-locations").addEventListener("click", handlers.onOpenPilotLocationNodes);
+    getElement("btn-home-about").addEventListener("click", handlers.onOpenPilotAbout);
     getElement("btn-historico").addEventListener("click", handlers.onOpenHistory);
     getElement("btn-fechar-historico").addEventListener("click", handlers.onCloseHistory);
     getElement("btn-adicionar-item").addEventListener("click", async () => {

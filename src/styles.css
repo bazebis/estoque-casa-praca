@@ -90,6 +90,7 @@ select:focus-visible {
 #btn-iniciar-contagem,
 .storage-status,
 .draft-notice,
+.pilot-dashboard,
 .container,
 #lista-final,
 .history-container,
@@ -102,6 +103,62 @@ select:focus-visible {
 
 .app-header {
     padding-top: var(--space-2);
+}
+
+.pilot-hidden {
+    display: none !important;
+}
+
+.pilot-dashboard {
+    padding: var(--space-4);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+    text-align: left;
+}
+
+.pilot-badge {
+    display: inline-block;
+    margin-bottom: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    background-color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    color: var(--color-primary-text);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.pilot-dashboard-description {
+    margin-top: var(--space-2);
+    color: var(--color-text-muted);
+}
+
+.pilot-module-list {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+}
+
+.pilot-module-button {
+    display: grid;
+    gap: var(--space-1);
+    min-height: 76px;
+    margin: 0;
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    text-align: left;
+}
+
+.pilot-module-button:hover {
+    background-color: var(--color-surface-soft);
+}
+
+.pilot-module-button span {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    font-weight: 400;
 }
 
 #banner {

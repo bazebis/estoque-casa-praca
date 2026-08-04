@@ -477,6 +477,20 @@ function openCatalogConfig() {
     openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers);
 }
 
+async function openPilotCountTemplates() {
+    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "templates");
+    await openCountTemplates();
+}
+
+async function openPilotLocationNodes() {
+    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "locations");
+    await openLocationNodes();
+}
+
+function openPilotAbout() {
+    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "about");
+}
+
 async function restartCounting() {
     const shouldRestart = window.confirm(
         "Iniciar nova contagem? O relatório finalizado continuará salvo, mas a tela atual será fechada."
@@ -776,6 +790,9 @@ const locationNodeHandlers = {
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
+    onOpenPilotCountTemplates: openPilotCountTemplates,
+    onOpenPilotLocationNodes: openPilotLocationNodes,
+    onOpenPilotAbout: openPilotAbout,
     onOpenHistory: openHistory,
     onOpenCountTemplates: openCountTemplates,
     onOpenLocationNodes: openLocationNodes,
