@@ -12,6 +12,7 @@ const adminSections = {
     catalog: "admin-section-catalog",
     "catalog-import": "admin-section-catalog-import",
     units: "admin-section-units",
+    templates: "admin-section-templates",
     history: "admin-section-history",
     backup: "admin-section-backup",
     about: "admin-section-about"
@@ -43,6 +44,10 @@ function showAdminSection(sectionName) {
 export function showAdminMenu() {
     hideHistoryView();
     showAdminSection("menu");
+}
+
+export function showCountTemplatesAdminSection() {
+    showAdminSection("templates");
 }
 
 function formatNumber(value) {
@@ -1196,6 +1201,11 @@ function connectAdminNavigationEvents(handlers) {
 
             if (target === "history") {
                 handlers.onOpenHistory();
+                return;
+            }
+
+            if (target === "templates") {
+                handlers.onOpenCountTemplates();
                 return;
             }
 

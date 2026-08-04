@@ -57,6 +57,7 @@
                 <button type="button" class="admin-menu-button" data-admin-target="catalog">Catálogo de itens</button>
                 <button type="button" class="admin-menu-button" data-admin-target="catalog-import">Importar catálogo CSV</button>
                 <button type="button" class="admin-menu-button" data-admin-target="units">Unidades e conversões</button>
+                <button type="button" class="admin-menu-button" data-admin-target="templates">Templates de contagem</button>
                 <button type="button" class="admin-menu-button" data-admin-target="history">Histórico de contagens</button>
                 <button type="button" class="admin-menu-button" data-admin-target="backup">Backup e restauração</button>
                 <button type="button" class="admin-menu-button" data-admin-target="about">Sobre o app</button>
@@ -111,6 +112,17 @@
                     <button id="btn-adicionar-unidade">Adicionar unidade</button>
                 </div>
                 <p id="unidades-feedback" class="units-feedback" aria-live="polite"></p>
+            </section>
+
+            <section id="admin-section-templates" class="admin-section count-templates-section" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Templates de contagem</h3>
+                <p>Importe um template JSON para inspecionar grupos, áreas e itens. Isso não altera o catálogo nem inicia uma contagem.</p>
+                <input type="file" id="count-template-import-file" accept=".json,application/json">
+                <button type="button" id="btn-importar-count-template">Importar template JSON</button>
+                <p id="count-template-feedback" class="count-template-feedback" aria-live="polite"></p>
+                <div id="count-template-list" class="count-template-list"></div>
+                <div id="count-template-detail" class="count-template-detail" hidden></div>
             </section>
 
             <section id="admin-section-history" class="admin-section" hidden>

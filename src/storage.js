@@ -1,5 +1,6 @@
 import { initialCatalogItems } from "./seed.js";
 import { normalizeHistoryEntry } from "./history.js";
+import { normalizeCountTemplate } from "./countTemplates.js";
 import { normalizeCustomUnits } from "./units.js";
 import {
     bulkPut,
@@ -19,7 +20,9 @@ const countingHistoryStorageKey = "countingHistory";
 const catalogBackupBeforeImportStorageKey = "catalogBackupBeforeImport";
 const backupBeforeJsonImportStorageKey = "backupBeforeJsonImport";
 const customUnitsStorageKey = "customUnits";
+const countTemplatesStorageKey = "countTemplates";
 const migrationFlagKey = "localStorageMigrationCompleted";
+const countTemplatesMigrationFlagKey = "countTemplatesLocalStorageMigrationCompleted";
 const catalogInitializedKey = "catalogInitialized";
 const currentDraftKey = "current";
 
@@ -121,6 +124,39 @@ function saveLocalCountingHistory(history) {
     return sortedHistory;
 }
 
+function sortCountTemplates(templates) {
+    return templates
+        .map(normalizeCountTemplate)
+        .filter(Boolean)
+        .sort((firstTemplate, secondTemplate) => {
+            const dateDifference = new Date(secondTemplate.importedAt) - new Date(firstTemplate.importedAt);
+
+            return Number.isNaN(dateDifference)
+                ? firstTemplate.name.localeCompare(secondTemplate.name, "pt-BR")
+                : dateDifference;
+        });
+}
+
+function loadLocalCountTemplates() {
+    const templates = readJson(countTemplatesStorageKey);
+
+    return sortCountTemplates(Array.isArray(templates) ? templates : []);
+}
+
+function saveLocalCountTemplate(template) {
+    const templates = loadLocalCountTemplates().filter((item) => item.id !== template.id);
+    const nextTemplates = sortCountTemplates([...templates, template]);
+
+    writeJson(countTemplatesStorageKey, nextTemplates);
+    return template;
+}
+
+function deleteLocalCountTemplate(templateId) {
+    const templates = loadLocalCountTemplates().filter((template) => template.id !== templateId);
+
+    writeJson(countTemplatesStorageKey, templates);
+}
+
 function saveLocalCatalogBackupBeforeImport(items) {
     const backup = {
         createdAt: new Date().toISOString(),
@@ -205,6 +241,28 @@ async function migrateLocalStorageToIndexedDB() {
     return true;
 }
 
+async function migrateCountTemplatesToIndexedDB() {
+    const migrationState = await getFromStore(storeNames.appState, countTemplatesMigrationFlagKey);
+
+    if (migrationState?.value === true) {
+        return false;
+    }
+
+    const localTemplates = loadLocalCountTemplates();
+
+    if (localTemplates.length > 0) {
+        await bulkPut(storeNames.countTemplates, localTemplates);
+    }
+
+    await putInStore(storeNames.appState, {
+        key: countTemplatesMigrationFlagKey,
+        value: true,
+        completedAt: new Date().toISOString()
+    });
+
+    return localTemplates.length > 0;
+}
+
 async function runWithFallback(dbOperation, fallbackOperation) {
     if (!shouldUseIndexedDB) {
         return fallbackOperation();
@@ -235,11 +293,12 @@ export async function initializeStorage() {
     try {
         await openDatabase();
         shouldUseIndexedDB = true;
-        const wasMigrated = await migrateLocalStorageToIndexedDB();
+        const wasLegacyDataMigrated = await migrateLocalStorageToIndexedDB();
+        const wereCountTemplatesMigrated = await migrateCountTemplatesToIndexedDB();
         isStorageInitialized = true;
         return {
             ...getStorageStatus(),
-            migrated: wasMigrated
+            migrated: wasLegacyDataMigrated || wereCountTemplatesMigrated
         };
     } catch (error) {
         shouldUseIndexedDB = false;
@@ -404,4 +463,54 @@ export async function saveBackupBeforeJsonImport(state) {
         () => saveLocalBackupBeforeJsonImport(state)
     );
     saveLocalBackupBeforeJsonImport(state);
+}
+
+export async function listCountTemplates() {
+    return runWithFallback(
+        async () => sortCountTemplates(await getAllFromStore(storeNames.countTemplates)),
+        loadLocalCountTemplates
+    );
+}
+
+export async function getCountTemplate(templateId) {
+    const normalizedId = String(templateId || "").trim();
+
+    if (!normalizedId) {
+        return null;
+    }
+
+    return runWithFallback(
+        async () => normalizeCountTemplate(await getFromStore(storeNames.countTemplates, normalizedId)),
+        () => loadLocalCountTemplates().find((template) => template.id === normalizedId) || null
+    );
+}
+
+export async function saveCountTemplate(template) {
+    const normalizedTemplate = normalizeCountTemplate(template);
+
+    if (!normalizedTemplate) {
+        throw new Error("Template de contagem inválido.");
+    }
+
+    await runWithFallback(
+        () => putInStore(storeNames.countTemplates, normalizedTemplate),
+        () => saveLocalCountTemplate(normalizedTemplate)
+    );
+    saveLocalCountTemplate(normalizedTemplate);
+
+    return normalizedTemplate;
+}
+
+export async function deleteCountTemplate(templateId) {
+    const normalizedId = String(templateId || "").trim();
+
+    if (!normalizedId) {
+        return;
+    }
+
+    await runWithFallback(
+        () => deleteFromStore(storeNames.countTemplates, normalizedId),
+        () => deleteLocalCountTemplate(normalizedId)
+    );
+    deleteLocalCountTemplate(normalizedId);
 }

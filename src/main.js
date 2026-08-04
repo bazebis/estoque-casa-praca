@@ -9,12 +9,21 @@ import {
 } from "./backup.js";
 import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
+import { validateCountTemplate } from "./countTemplates.js";
+import {
+    connectCountTemplateEvents,
+    renderCountTemplateDetail,
+    renderCountTemplateList,
+    showCountTemplateFeedback
+} from "./countTemplatesUi.js";
 import { parseCatalogCsv } from "./csvImport.js";
 import { createHistoryEntry } from "./history.js";
 import { registerPwa } from "./pwa.js";
 import {
     addCountHistoryEntry,
     clearCountingDraft,
+    deleteCountTemplate,
+    getCountTemplate,
     getStorageStatus,
     initializeStorage,
     loadCatalog,
@@ -23,11 +32,13 @@ import {
     loadLastFinalizedCount,
     loadCustomUnits,
     loadRelevantLocalStorageKeys,
+    listCountTemplates,
     saveBackupBeforeJsonImport,
     saveCatalogBackupBeforeImport,
     saveCatalog,
     saveCountingHistory,
     saveCountingDraft,
+    saveCountTemplate,
     saveCustomUnits
 } from "./storage.js";
 import {
@@ -59,6 +70,7 @@ import {
     showFinalSummary,
     showBackupImportStatus,
     showCatalogImportStatus,
+    showCountTemplatesAdminSection,
     showUnitsFeedback,
     updateConfigList
 } from "./ui.js";
@@ -499,6 +511,86 @@ async function viewHistoryEntry(entryId) {
     showHistoryDetail(entry, historyHandlers);
 }
 
+async function refreshCountTemplatesView() {
+    const templates = await listCountTemplates();
+    renderCountTemplateList(templates, countTemplateHandlers);
+}
+
+async function openCountTemplates() {
+    showCountTemplatesAdminSection();
+    showCountTemplateFeedback("");
+
+    try {
+        await refreshCountTemplatesView();
+    } catch {
+        showCountTemplateFeedback("Não foi possível carregar os templates salvos.", "error");
+    }
+}
+
+async function importCountTemplate(jsonText, importFileName) {
+    let payload;
+
+    try {
+        payload = JSON.parse(jsonText);
+    } catch {
+        showCountTemplateFeedback("O arquivo JSON está malformado.", "error");
+        return false;
+    }
+
+    const validation = validateCountTemplate(payload);
+
+    if (!validation.isValid) {
+        showCountTemplateFeedback(`Template inválido: ${validation.errors.slice(0, 3).join(" ")}`, "error");
+        return false;
+    }
+
+    try {
+        await saveCountTemplate({
+            ...validation.template,
+            importedAt: new Date().toISOString(),
+            importFileName
+        });
+        await refreshCountTemplatesView();
+        showCountTemplateFeedback("Template importado e salvo neste dispositivo.", "success");
+        return true;
+    } catch {
+        showCountTemplateFeedback("Não foi possível salvar o template neste dispositivo.", "error");
+        return false;
+    }
+}
+
+async function viewCountTemplate(templateId) {
+    try {
+        const template = await getCountTemplate(templateId);
+
+        if (!template) {
+            showCountTemplateFeedback("Template não encontrado.", "error");
+            await refreshCountTemplatesView();
+            return;
+        }
+
+        renderCountTemplateDetail(template, countTemplateHandlers);
+    } catch {
+        showCountTemplateFeedback("Não foi possível abrir o template.", "error");
+    }
+}
+
+async function removeCountTemplate(templateId) {
+    try {
+        const template = await getCountTemplate(templateId);
+
+        if (!template || !window.confirm(`Remover o template "${template.name}" deste dispositivo?`)) {
+            return;
+        }
+
+        await deleteCountTemplate(templateId);
+        await refreshCountTemplatesView();
+        showCountTemplateFeedback("Template removido.", "success");
+    } catch {
+        showCountTemplateFeedback("Não foi possível remover o template.", "error");
+    }
+}
+
 const catalogHandlers = {
     getItems: catalog.listItems,
     onDeleteItem: deleteItem,
@@ -541,10 +633,18 @@ const historyHandlers = {
     onBackToHistory: openHistory
 };
 
+const countTemplateHandlers = {
+    onImportTemplate: importCountTemplate,
+    onViewTemplate: viewCountTemplate,
+    onDeleteTemplate: removeCountTemplate,
+    onBackToList: refreshCountTemplatesView
+};
+
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
     onOpenHistory: openHistory,
+    onOpenCountTemplates: openCountTemplates,
     onCloseHistory: closeHistory,
     onAddItem: addItem,
     onAddUnit: addCustomUnit,
@@ -557,6 +657,8 @@ connectEvents({
     onCancelBackupImport: cancelBackupImport,
     onRestartCounting: restartCounting
 });
+
+connectCountTemplateEvents(countTemplateHandlers);
 
 renderUnitOptions();
 renderInitialSavedState();
