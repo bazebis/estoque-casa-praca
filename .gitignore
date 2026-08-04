@@ -16,3 +16,8 @@ contagem-casa-praca-*.csv
 .DS_Store
 *.pem
 *.key
+
+# Local operational files from Casa da Praça count template conversion
+data/imports/
+data/generated/
+codex_reports/
