@@ -1023,6 +1023,170 @@ select {
     opacity: 0.45;
 }
 
+/* count preparation */
+.count-preparation-section > p,
+.count-preparation-feedback,
+.count-preparation-area-meta,
+.count-preparation-empty-note,
+.count-preparation-empty p {
+    color: var(--color-text-muted);
+}
+
+.count-preparation-template-field {
+    display: grid;
+    gap: var(--space-1);
+    margin-top: var(--space-4);
+    text-align: left;
+    font-weight: 700;
+}
+
+.count-preparation-template-field[hidden],
+.count-preparation-empty[hidden],
+.count-preparation-summary[hidden] {
+    display: none;
+}
+
+.count-preparation-secondary-button {
+    min-height: 44px;
+    background-color: var(--color-surface-soft);
+}
+
+.count-preparation-feedback {
+    min-height: 1.4em;
+    margin: var(--space-3) 0;
+}
+
+.count-preparation-feedback[data-tone="error"] {
+    color: #ffb4b4;
+}
+
+.count-preparation-empty,
+.count-preparation-area-card,
+.count-preparation-issue-block {
+    padding: var(--space-3);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    text-align: left;
+}
+
+.count-preparation-empty h4,
+.count-preparation-empty p,
+.count-preparation-area-card h4,
+.count-preparation-area-card h5,
+.count-preparation-issue-block h4 {
+    margin: 0;
+}
+
+.count-preparation-empty p {
+    margin-top: var(--space-2);
+}
+
+.count-preparation-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+    margin: 0 0 var(--space-4);
+}
+
+.count-preparation-stat {
+    min-width: 0;
+    padding: var(--space-2);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.count-preparation-stat dt {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.count-preparation-stat dd {
+    margin: var(--space-1) 0 0;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.count-preparation-areas,
+.count-preparation-issues,
+.count-preparation-groups {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.count-preparation-issues {
+    margin-top: var(--space-4);
+}
+
+.count-preparation-area-header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2);
+    align-items: start;
+}
+
+.count-preparation-status {
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.count-preparation-status.is-covered {
+    background-color: #244d2d;
+    color: #c8f5d1;
+}
+
+.count-preparation-status.is-warning {
+    background-color: #59491f;
+    color: #ffe49c;
+}
+
+.count-preparation-status.is-missing {
+    background-color: var(--color-danger);
+    color: #ffe5e5;
+}
+
+.count-preparation-area-meta {
+    margin: var(--space-2) 0 var(--space-3);
+}
+
+.count-preparation-area-card h5 {
+    margin-top: var(--space-3);
+}
+
+.count-preparation-location-list,
+.count-preparation-item-list,
+.count-preparation-issue-block ul {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-5);
+}
+
+.count-preparation-location-list li,
+.count-preparation-item-list li,
+.count-preparation-issue-block li {
+    margin-bottom: var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+.count-preparation-group {
+    padding: var(--space-2);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.count-preparation-group summary {
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.count-preparation-empty-note {
+    margin-top: var(--space-2);
+}
+
 /* counting */
 .counting-container {
     display: none;

@@ -9,6 +9,12 @@ import {
 } from "./backup.js";
 import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
+import { buildCoverageReport } from "./countPreparation.js";
+import {
+    connectCountPreparationEvents,
+    renderCountPreparation,
+    showCountPreparationFeedback
+} from "./countPreparationUi.js";
 import { validateCountTemplate } from "./countTemplates.js";
 import {
     connectCountTemplateEvents,
@@ -78,6 +84,7 @@ import {
     showFinalSummary,
     showBackupImportStatus,
     showCatalogImportStatus,
+    showCountPreparationAdminSection,
     showCountTemplatesAdminSection,
     showLocationNodesAdminSection,
     showUnitsFeedback,
@@ -96,6 +103,7 @@ let lastFinalizedCount = await loadLastFinalizedCount();
 let isCountingVisible = false;
 let pendingCatalogImport = null;
 let pendingBackupImport = null;
+let selectedCountPreparationTemplateId = null;
 
 await saveCatalog(catalog.listItems());
 
@@ -487,6 +495,11 @@ async function openPilotLocationNodes() {
     await openLocationNodes();
 }
 
+async function openPilotCountPreparation() {
+    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "preparation");
+    await openCountPreparation();
+}
+
 function openPilotAbout() {
     openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "about");
 }
@@ -636,6 +649,41 @@ async function openLocationNodes() {
         await refreshLocationNodesView();
     } catch {
         showLocationNodesFeedback("Não foi possível carregar os locais físicos.", "error");
+    }
+}
+
+async function refreshCountPreparationView() {
+    const [templates, locationNodes] = await Promise.all([listCountTemplates(), listLocationNodes()]);
+    const selectedTemplate = templates.find((template) => template.id === selectedCountPreparationTemplateId)
+        || templates[0]
+        || null;
+
+    selectedCountPreparationTemplateId = selectedTemplate?.id || null;
+    renderCountPreparation({
+        templates,
+        selectedTemplateId: selectedCountPreparationTemplateId,
+        report: selectedTemplate ? buildCoverageReport(selectedTemplate, locationNodes) : null
+    });
+}
+
+async function openCountPreparation() {
+    showCountPreparationAdminSection();
+    showCountPreparationFeedback("");
+
+    try {
+        await refreshCountPreparationView();
+    } catch {
+        showCountPreparationFeedback("Não foi possível gerar a prévia de cobertura.", "error");
+    }
+}
+
+async function selectCountPreparationTemplate(templateId) {
+    selectedCountPreparationTemplateId = templateId;
+
+    try {
+        await refreshCountPreparationView();
+    } catch {
+        showCountPreparationFeedback("Não foi possível analisar o template selecionado.", "error");
     }
 }
 
@@ -792,10 +840,12 @@ connectEvents({
     onOpenConfig: openCatalogConfig,
     onOpenPilotCountTemplates: openPilotCountTemplates,
     onOpenPilotLocationNodes: openPilotLocationNodes,
+    onOpenPilotCountPreparation: openPilotCountPreparation,
     onOpenPilotAbout: openPilotAbout,
     onOpenHistory: openHistory,
     onOpenCountTemplates: openCountTemplates,
     onOpenLocationNodes: openLocationNodes,
+    onOpenCountPreparation: openCountPreparation,
     onCloseHistory: closeHistory,
     onAddItem: addItem,
     onAddUnit: addCustomUnit,
@@ -811,6 +861,10 @@ connectEvents({
 
 connectCountTemplateEvents(countTemplateHandlers);
 connectLocationNodeEvents(locationNodeHandlers);
+connectCountPreparationEvents({
+    onSelectTemplate: selectCountPreparationTemplate,
+    onOpenTemplates: openCountTemplates
+});
 
 renderUnitOptions();
 renderInitialSavedState();

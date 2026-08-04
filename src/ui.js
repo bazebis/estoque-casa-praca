@@ -14,6 +14,7 @@ const adminSections = {
     units: "admin-section-units",
     templates: "admin-section-templates",
     locations: "admin-section-locations",
+    preparation: "admin-section-preparation",
     history: "admin-section-history",
     backup: "admin-section-backup",
     about: "admin-section-about"
@@ -53,6 +54,10 @@ export function showCountTemplatesAdminSection() {
 
 export function showLocationNodesAdminSection() {
     showAdminSection("locations");
+}
+
+export function showCountPreparationAdminSection() {
+    showAdminSection("preparation");
 }
 
 function formatNumber(value) {
@@ -1219,6 +1224,11 @@ function connectAdminNavigationEvents(handlers) {
                 return;
             }
 
+            if (target === "preparation") {
+                handlers.onOpenCountPreparation();
+                return;
+            }
+
             showAdminSection(target);
         });
     });
@@ -1229,6 +1239,7 @@ export function connectEvents(handlers) {
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
     getElement("btn-home-templates").addEventListener("click", handlers.onOpenPilotCountTemplates);
     getElement("btn-home-locations").addEventListener("click", handlers.onOpenPilotLocationNodes);
+    getElement("btn-home-preparation").addEventListener("click", handlers.onOpenPilotCountPreparation);
     getElement("btn-home-about").addEventListener("click", handlers.onOpenPilotAbout);
     getElement("btn-historico").addEventListener("click", handlers.onOpenHistory);
     getElement("btn-fechar-historico").addEventListener("click", handlers.onCloseHistory);

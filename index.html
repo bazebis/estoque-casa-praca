@@ -34,6 +34,10 @@
                 <strong>Locais físicos</strong>
                 <span>Cadastrar cômodos, equipamentos e subdivisões.</span>
             </button>
+            <button type="button" id="btn-home-preparation" class="pilot-module-button">
+                <strong>Preparação da contagem</strong>
+                <span>Conferir a cobertura entre áreas do template e locais físicos.</span>
+            </button>
             <button type="button" id="btn-home-about" class="pilot-module-button">
                 <strong>Sobre o app</strong>
                 <span>Consultar o escopo e as limitações deste piloto.</span>
@@ -79,6 +83,7 @@
                 <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="units">Unidades e conversões</button>
                 <button type="button" class="admin-menu-button" data-admin-target="templates">Templates de contagem</button>
                 <button type="button" class="admin-menu-button" data-admin-target="locations">Locais físicos</button>
+                <button type="button" class="admin-menu-button" data-admin-target="preparation">Preparação da contagem</button>
                 <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="history">Histórico de contagens</button>
                 <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="backup">Backup e restauração</button>
                 <button type="button" class="admin-menu-button" data-admin-target="about">Sobre o app</button>
@@ -175,6 +180,28 @@
                 </form>
 
                 <div id="location-nodes-tree" class="location-nodes-tree"></div>
+            </section>
+
+            <section id="admin-section-preparation" class="admin-section count-preparation-section" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Preparação da contagem</h3>
+                <p>Confira se as áreas do template importado possuem locais físicos configurados. Esta prévia não altera nenhum dado.</p>
+
+                <label id="count-preparation-template-field" class="count-preparation-template-field" for="count-preparation-template">
+                    Template analisado
+                    <select id="count-preparation-template"></select>
+                </label>
+                <button type="button" id="btn-count-preparation-templates" class="count-preparation-secondary-button">Abrir Templates de contagem</button>
+                <p id="count-preparation-feedback" class="count-preparation-feedback" aria-live="polite"></p>
+
+                <div id="count-preparation-empty" class="count-preparation-empty" hidden>
+                    <h4>Nenhum template importado</h4>
+                    <p>Importe primeiro um arquivo JSON em Templates de contagem para gerar este diagnóstico.</p>
+                </div>
+
+                <dl id="count-preparation-summary" class="count-preparation-summary" hidden></dl>
+                <div id="count-preparation-areas" class="count-preparation-areas"></div>
+                <div id="count-preparation-issues" class="count-preparation-issues"></div>
             </section>
 
             <section id="admin-section-history" class="admin-section" hidden>
