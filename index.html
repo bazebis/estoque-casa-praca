@@ -58,6 +58,7 @@
                 <button type="button" class="admin-menu-button" data-admin-target="catalog-import">Importar catálogo CSV</button>
                 <button type="button" class="admin-menu-button" data-admin-target="units">Unidades e conversões</button>
                 <button type="button" class="admin-menu-button" data-admin-target="templates">Templates de contagem</button>
+                <button type="button" class="admin-menu-button" data-admin-target="locations">Locais físicos</button>
                 <button type="button" class="admin-menu-button" data-admin-target="history">Histórico de contagens</button>
                 <button type="button" class="admin-menu-button" data-admin-target="backup">Backup e restauração</button>
                 <button type="button" class="admin-menu-button" data-admin-target="about">Sobre o app</button>
@@ -123,6 +124,37 @@
                 <p id="count-template-feedback" class="count-template-feedback" aria-live="polite"></p>
                 <div id="count-template-list" class="count-template-list"></div>
                 <div id="count-template-detail" class="count-template-detail" hidden></div>
+            </section>
+
+            <section id="admin-section-locations" class="admin-section location-nodes-section" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Locais físicos</h3>
+                <p>Organize cômodos, equipamentos e subdivisões. Estes locais ainda não alteram a contagem atual.</p>
+                <div id="location-nodes-summary" class="location-nodes-summary"></div>
+                <button type="button" id="btn-add-root-location">Criar local raiz</button>
+                <p id="location-nodes-feedback" class="location-nodes-feedback" aria-live="polite"></p>
+
+                <form id="location-form" class="location-form" hidden>
+                    <h4 id="location-form-title">Novo local</h4>
+                    <p id="location-parent-path" class="location-parent-path"></p>
+                    <label for="location-name">Nome</label>
+                    <input type="text" id="location-name" required maxlength="120" autocomplete="off">
+                    <label for="location-type">Tipo</label>
+                    <select id="location-type" required></select>
+                    <label for="location-report-area">Área de relatório</label>
+                    <input type="text" id="location-report-area" list="location-report-areas" maxlength="80" placeholder="Opcional">
+                    <datalist id="location-report-areas"></datalist>
+                    <label class="location-active-field">
+                        <input type="checkbox" id="location-active" checked>
+                        Local ativo
+                    </label>
+                    <div class="location-form-actions">
+                        <button type="submit">Salvar local</button>
+                        <button type="button" id="btn-cancel-location" class="location-secondary-button">Cancelar</button>
+                    </div>
+                </form>
+
+                <div id="location-nodes-tree" class="location-nodes-tree"></div>
             </section>
 
             <section id="admin-section-history" class="admin-section" hidden>

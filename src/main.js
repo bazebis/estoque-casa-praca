@@ -18,11 +18,17 @@ import {
 } from "./countTemplatesUi.js";
 import { parseCatalogCsv } from "./csvImport.js";
 import { createHistoryEntry } from "./history.js";
+import {
+    connectLocationNodeEvents,
+    renderLocationNodes,
+    showLocationNodesFeedback
+} from "./locationNodesUi.js";
 import { registerPwa } from "./pwa.js";
 import {
     addCountHistoryEntry,
     clearCountingDraft,
     deleteCountTemplate,
+    deleteLocationNode,
     getCountTemplate,
     getStorageStatus,
     initializeStorage,
@@ -33,12 +39,14 @@ import {
     loadCustomUnits,
     loadRelevantLocalStorageKeys,
     listCountTemplates,
+    listLocationNodes,
     saveBackupBeforeJsonImport,
     saveCatalogBackupBeforeImport,
     saveCatalog,
     saveCountingHistory,
     saveCountingDraft,
     saveCountTemplate,
+    saveLocationNode,
     saveCustomUnits
 } from "./storage.js";
 import {
@@ -71,6 +79,7 @@ import {
     showBackupImportStatus,
     showCatalogImportStatus,
     showCountTemplatesAdminSection,
+    showLocationNodesAdminSection,
     showUnitsFeedback,
     updateConfigList
 } from "./ui.js";
@@ -591,6 +600,124 @@ async function removeCountTemplate(templateId) {
     }
 }
 
+function createLocationNodeId() {
+    if (globalThis.crypto?.randomUUID) {
+        return `location_${globalThis.crypto.randomUUID()}`;
+    }
+
+    return `location_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+async function refreshLocationNodesView() {
+    const nodes = await listLocationNodes();
+    renderLocationNodes(nodes, locationNodeHandlers);
+    return nodes;
+}
+
+async function openLocationNodes() {
+    showLocationNodesAdminSection();
+    showLocationNodesFeedback("");
+
+    try {
+        await refreshLocationNodesView();
+    } catch {
+        showLocationNodesFeedback("Não foi possível carregar os locais físicos.", "error");
+    }
+}
+
+function getNextSiblingOrder(parentId, nodes) {
+    const siblingOrders = nodes
+        .filter((node) => node.parentId === parentId)
+        .map((node) => Number(node.order) || 0);
+
+    return siblingOrders.length > 0 ? Math.max(...siblingOrders) + 1 : 0;
+}
+
+async function savePhysicalLocation(values) {
+    try {
+        const nodes = await listLocationNodes();
+        const existingNode = values.id ? nodes.find((node) => node.id === values.id) : null;
+        await saveLocationNode({
+            ...values,
+            id: existingNode?.id || createLocationNodeId(),
+            order: existingNode?.order ?? getNextSiblingOrder(values.parentId, nodes)
+        });
+        await refreshLocationNodesView();
+        showLocationNodesFeedback(existingNode ? "Local atualizado." : "Local criado.", "success");
+        return true;
+    } catch (error) {
+        showLocationNodesFeedback(error.message || "Não foi possível salvar o local.", "error");
+        return false;
+    }
+}
+
+async function removePhysicalLocation(locationId) {
+    try {
+        const nodes = await listLocationNodes();
+        const node = nodes.find((item) => item.id === locationId);
+
+        if (!node) {
+            showLocationNodesFeedback("Local não encontrado.", "error");
+            return;
+        }
+
+        if (nodes.some((item) => item.parentId === locationId)) {
+            showLocationNodesFeedback("Remova ou reorganize os locais filhos antes de excluir este local.", "error");
+            return;
+        }
+
+        if (!window.confirm(`Remover o local "${node.name}"?`)) {
+            return;
+        }
+
+        await deleteLocationNode(locationId);
+        await refreshLocationNodesView();
+        showLocationNodesFeedback("Local removido.", "success");
+    } catch {
+        showLocationNodesFeedback("Não foi possível remover o local.", "error");
+    }
+}
+
+function sortSiblingNodes(nodes, parentId) {
+    return nodes
+        .filter((node) => node.parentId === parentId)
+        .sort((firstNode, secondNode) => (
+            firstNode.order - secondNode.order || firstNode.name.localeCompare(secondNode.name, "pt-BR")
+        ));
+}
+
+async function movePhysicalLocation(locationId, direction) {
+    try {
+        const nodes = await listLocationNodes();
+        const node = nodes.find((item) => item.id === locationId);
+
+        if (!node) {
+            return;
+        }
+
+        const siblings = sortSiblingNodes(nodes, node.parentId);
+        const currentIndex = siblings.findIndex((item) => item.id === locationId);
+        const targetIndex = currentIndex + direction;
+
+        if (targetIndex < 0 || targetIndex >= siblings.length) {
+            return;
+        }
+
+        const reorderedSiblings = [...siblings];
+        reorderedSiblings.splice(currentIndex, 1);
+        reorderedSiblings.splice(targetIndex, 0, node);
+
+        for (const [index, sibling] of reorderedSiblings.entries()) {
+            await saveLocationNode({ ...sibling, order: index });
+        }
+
+        await refreshLocationNodesView();
+        showLocationNodesFeedback("Ordem dos locais atualizada.", "success");
+    } catch (error) {
+        showLocationNodesFeedback(error.message || "Não foi possível reordenar os locais.", "error");
+    }
+}
+
 const catalogHandlers = {
     getItems: catalog.listItems,
     onDeleteItem: deleteItem,
@@ -640,11 +767,18 @@ const countTemplateHandlers = {
     onBackToList: refreshCountTemplatesView
 };
 
+const locationNodeHandlers = {
+    onSaveNode: savePhysicalLocation,
+    onDeleteNode: removePhysicalLocation,
+    onMoveNode: movePhysicalLocation
+};
+
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
     onOpenHistory: openHistory,
     onOpenCountTemplates: openCountTemplates,
+    onOpenLocationNodes: openLocationNodes,
     onCloseHistory: closeHistory,
     onAddItem: addItem,
     onAddUnit: addCustomUnit,
@@ -659,6 +793,7 @@ connectEvents({
 });
 
 connectCountTemplateEvents(countTemplateHandlers);
+connectLocationNodeEvents(locationNodeHandlers);
 
 renderUnitOptions();
 renderInitialSavedState();

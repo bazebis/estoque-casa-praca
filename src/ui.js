@@ -13,6 +13,7 @@ const adminSections = {
     "catalog-import": "admin-section-catalog-import",
     units: "admin-section-units",
     templates: "admin-section-templates",
+    locations: "admin-section-locations",
     history: "admin-section-history",
     backup: "admin-section-backup",
     about: "admin-section-about"
@@ -48,6 +49,10 @@ export function showAdminMenu() {
 
 export function showCountTemplatesAdminSection() {
     showAdminSection("templates");
+}
+
+export function showLocationNodesAdminSection() {
+    showAdminSection("locations");
 }
 
 function formatNumber(value) {
@@ -1206,6 +1211,11 @@ function connectAdminNavigationEvents(handlers) {
 
             if (target === "templates") {
                 handlers.onOpenCountTemplates();
+                return;
+            }
+
+            if (target === "locations") {
+                handlers.onOpenLocationNodes();
                 return;
             }
 

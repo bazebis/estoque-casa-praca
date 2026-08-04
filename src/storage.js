@@ -1,6 +1,10 @@
 import { initialCatalogItems } from "./seed.js";
 import { normalizeHistoryEntry } from "./history.js";
 import { normalizeCountTemplate } from "./countTemplates.js";
+import {
+    normalizeLocationNodes,
+    validateLocationNode
+} from "./locationNodes.js";
 import { normalizeCustomUnits } from "./units.js";
 import {
     bulkPut,
@@ -21,8 +25,10 @@ const catalogBackupBeforeImportStorageKey = "catalogBackupBeforeImport";
 const backupBeforeJsonImportStorageKey = "backupBeforeJsonImport";
 const customUnitsStorageKey = "customUnits";
 const countTemplatesStorageKey = "countTemplates";
+const locationNodesStorageKey = "locationNodes";
 const migrationFlagKey = "localStorageMigrationCompleted";
 const countTemplatesMigrationFlagKey = "countTemplatesLocalStorageMigrationCompleted";
+const locationNodesMigrationFlagKey = "locationNodesLocalStorageMigrationCompleted";
 const catalogInitializedKey = "catalogInitialized";
 const currentDraftKey = "current";
 
@@ -157,6 +163,32 @@ function deleteLocalCountTemplate(templateId) {
     writeJson(countTemplatesStorageKey, templates);
 }
 
+function sortLocationNodes(nodes) {
+    return normalizeLocationNodes(nodes).sort((firstNode, secondNode) => {
+        const parentComparison = String(firstNode.parentId).localeCompare(String(secondNode.parentId), "pt-BR");
+        const orderComparison = firstNode.order - secondNode.order;
+
+        return parentComparison || orderComparison || firstNode.name.localeCompare(secondNode.name, "pt-BR");
+    });
+}
+
+function loadLocalLocationNodes() {
+    const nodes = readJson(locationNodesStorageKey);
+    return sortLocationNodes(Array.isArray(nodes) ? nodes : []);
+}
+
+function saveLocalLocationNode(node) {
+    const nodes = loadLocalLocationNodes().filter((item) => item.id !== node.id);
+
+    writeJson(locationNodesStorageKey, sortLocationNodes([...nodes, node]));
+    return node;
+}
+
+function deleteLocalLocationNode(locationId) {
+    const nodes = loadLocalLocationNodes().filter((node) => node.id !== locationId);
+    writeJson(locationNodesStorageKey, nodes);
+}
+
 function saveLocalCatalogBackupBeforeImport(items) {
     const backup = {
         createdAt: new Date().toISOString(),
@@ -263,6 +295,28 @@ async function migrateCountTemplatesToIndexedDB() {
     return localTemplates.length > 0;
 }
 
+async function migrateLocationNodesToIndexedDB() {
+    const migrationState = await getFromStore(storeNames.appState, locationNodesMigrationFlagKey);
+
+    if (migrationState?.value === true) {
+        return false;
+    }
+
+    const localNodes = loadLocalLocationNodes();
+
+    if (localNodes.length > 0) {
+        await bulkPut(storeNames.locationNodes, localNodes);
+    }
+
+    await putInStore(storeNames.appState, {
+        key: locationNodesMigrationFlagKey,
+        value: true,
+        completedAt: new Date().toISOString()
+    });
+
+    return localNodes.length > 0;
+}
+
 async function runWithFallback(dbOperation, fallbackOperation) {
     if (!shouldUseIndexedDB) {
         return fallbackOperation();
@@ -295,10 +349,11 @@ export async function initializeStorage() {
         shouldUseIndexedDB = true;
         const wasLegacyDataMigrated = await migrateLocalStorageToIndexedDB();
         const wereCountTemplatesMigrated = await migrateCountTemplatesToIndexedDB();
+        const wereLocationNodesMigrated = await migrateLocationNodesToIndexedDB();
         isStorageInitialized = true;
         return {
             ...getStorageStatus(),
-            migrated: wasLegacyDataMigrated || wereCountTemplatesMigrated
+            migrated: wasLegacyDataMigrated || wereCountTemplatesMigrated || wereLocationNodesMigrated
         };
     } catch (error) {
         shouldUseIndexedDB = false;
@@ -513,4 +568,67 @@ export async function deleteCountTemplate(templateId) {
         () => deleteLocalCountTemplate(normalizedId)
     );
     deleteLocalCountTemplate(normalizedId);
+}
+
+export async function listLocationNodes() {
+    return runWithFallback(
+        async () => sortLocationNodes(await getAllFromStore(storeNames.locationNodes)),
+        loadLocalLocationNodes
+    );
+}
+
+export async function getLocationNode(locationId) {
+    const normalizedId = String(locationId || "").trim();
+
+    if (!normalizedId) {
+        return null;
+    }
+
+    return runWithFallback(
+        async () => normalizeLocationNodes([await getFromStore(storeNames.locationNodes, normalizedId)])[0] || null,
+        () => loadLocalLocationNodes().find((node) => node.id === normalizedId) || null
+    );
+}
+
+export async function saveLocationNode(node) {
+    const existingNodes = await listLocationNodes();
+    const existingNode = existingNodes.find((item) => item.id === String(node?.id || "").trim());
+    const timestamp = new Date().toISOString();
+    const validation = validateLocationNode({
+        ...node,
+        createdAt: existingNode?.createdAt || node?.createdAt || timestamp,
+        updatedAt: timestamp
+    }, existingNodes);
+
+    if (!validation.isValid) {
+        throw new Error(validation.error || "Local físico inválido.");
+    }
+
+    await runWithFallback(
+        () => putInStore(storeNames.locationNodes, validation.node),
+        () => saveLocalLocationNode(validation.node)
+    );
+    saveLocalLocationNode(validation.node);
+
+    return validation.node;
+}
+
+export async function deleteLocationNode(locationId) {
+    const normalizedId = String(locationId || "").trim();
+
+    if (!normalizedId) {
+        return;
+    }
+
+    const existingNodes = await listLocationNodes();
+
+    if (existingNodes.some((node) => node.parentId === normalizedId)) {
+        throw new Error("Não é possível remover um local que possui filhos.");
+    }
+
+    await runWithFallback(
+        () => deleteFromStore(storeNames.locationNodes, normalizedId),
+        () => deleteLocalLocationNode(normalizedId)
+    );
+    deleteLocalLocationNode(normalizedId);
 }
