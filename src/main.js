@@ -804,16 +804,22 @@ async function shareSavedSnapshotCsv(kind) {
         const snapshot = getActiveSnapshotForSharing();
         const result = await shareSnapshotCsv(snapshot, kind, activeSnapshotWhatsappSettings);
         if (result.status === "canceled") {
-            showSnapshotShareFeedback("Compartilhamento cancelado.", "warning");
+            showSnapshotShareFeedback("Compartilhamento cancelado. Nenhum arquivo foi enviado.");
             return;
         }
         if (result.status === "unsupported") {
-            showSnapshotShareFeedback("Compartilhamento de arquivo indisponível. Use o download.", "warning");
+            showSnapshotShareFeedback(
+                "Compartilhamento de arquivo não disponível neste navegador. Use Baixar CSV e Abrir WhatsApp.",
+                "warning"
+            );
             return;
         }
-        showSnapshotShareFeedback(`Compartilhamento aberto para ${result.file.name}.`, "success");
-    } catch (error) {
-        showSnapshotShareFeedback(error.message || "Não foi possível compartilhar o CSV.", "error");
+        showSnapshotShareFeedback(`Menu experimental aberto para ${result.file.name}.`, "success");
+    } catch {
+        showSnapshotShareFeedback(
+            "Compartilhamento de arquivo não disponível neste navegador. Use Baixar CSV e Abrir WhatsApp.",
+            "warning"
+        );
     }
 }
 

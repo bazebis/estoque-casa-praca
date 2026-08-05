@@ -78,22 +78,31 @@ export function showSnapshotShareFeedback(message, tone = "") {
 function renderShareOptions(snapshot, options) {
     const hasPending = snapshot.pendingEntries.length > 0;
     const canShareFiles = options.shareCapability?.canShareFiles === true;
+    const pendingDownloadButton = getElement("btn-download-snapshot-pending-csv");
+    const experimentalPanel = getElement("snapshot-experimental-share");
     const shareButtons = [
         getElement("btn-share-snapshot-main-csv"),
         getElement("btn-share-snapshot-pending-csv")
     ];
+    pendingDownloadButton.hidden = !hasPending;
+    experimentalPanel.hidden = !canShareFiles;
+    experimentalPanel.open = false;
     shareButtons[0].disabled = !canShareFiles;
     shareButtons[1].disabled = !canShareFiles || !hasPending;
-    shareButtons[0].title = canShareFiles ? "Abrir o compartilhamento do aparelho" : "Use o download como alternativa";
+    shareButtons[1].hidden = !hasPending;
+    shareButtons[0].title = canShareFiles ? "Recurso experimental do navegador" : "Use o download como alternativa";
     shareButtons[1].title = !hasPending
         ? "Este fechamento não possui pendências"
         : shareButtons[0].title;
     getElement("snapshot-file-share-capability").textContent = canShareFiles
-        ? "Compartilhamento de arquivo disponível neste navegador."
-        : "Compartilhamento de arquivo não disponível. Use o download ou a mensagem pronta.";
+        ? "O navegador declarou suporte ao compartilhamento de arquivo, disponível abaixo como recurso experimental."
+        : "Compartilhamento direto de arquivo não disponível neste navegador. Use Baixar CSV e Abrir WhatsApp.";
     getElement("snapshot-whatsapp-target-status").textContent = options.whatsappConfigured
-        ? "O destinatário configurado neste aparelho será usado."
-        : "Nenhum número configurado: o WhatsApp permitirá escolher a conversa.";
+        ? "Existe um destinatário configurado neste aparelho."
+        : "Nenhum número configurado: o WhatsApp abrirá para você escolher a conversa.";
+    getElement("btn-copy-snapshot-share-message").title = options.shareCapability?.supportsClipboard
+        ? "Copiar a mensagem pronta"
+        : "Selecionar a mensagem para copiar manualmente";
     getElement("snapshot-share-message").value = options.shareMessage || "";
     showSnapshotShareFeedback("");
 }

@@ -155,30 +155,41 @@
                 <span>Os valores abaixo são os que existiam no momento do fechamento e não são recalculados.</span>
             </div>
             <section class="snapshot-csv-export-panel" aria-labelledby="snapshot-csv-export-title">
-                <h3 id="snapshot-csv-export-title">Exportar e compartilhar</h3>
-                <p>Os arquivos CSV usam exclusivamente esta foto salva. A planilha XLSX semelhante ao modelo original será feita em etapa posterior.</p>
-                <div class="snapshot-csv-export-actions">
-                    <button type="button" id="btn-download-snapshot-main-csv">Baixar CSV da consolidação</button>
-                    <button type="button" id="btn-download-snapshot-pending-csv">Baixar CSV de pendências</button>
-                </div>
-                <p id="snapshot-csv-export-feedback" class="snapshot-csv-export-feedback" aria-live="polite"></p>
-                <div class="snapshot-share-section">
-                    <h4>Compartilhamento assistido</h4>
-                    <p id="snapshot-file-share-capability" class="snapshot-share-capability"></p>
-                    <div class="snapshot-share-actions">
-                        <button type="button" id="btn-share-snapshot-main-csv">Compartilhar CSV da consolidação</button>
-                        <button type="button" id="btn-share-snapshot-pending-csv">Compartilhar CSV de pendências</button>
+                <h3 id="snapshot-csv-export-title">Enviar fechamento</h3>
+                <p>Os arquivos CSV usam exclusivamente esta foto salva.</p>
+                <div class="snapshot-recommended-flow">
+                    <h4>Fluxo recomendado</h4>
+                    <ol>
+                        <li>Baixe o CSV da consolidação.</li>
+                        <li>Abra o WhatsApp com a mensagem pronta.</li>
+                        <li>Anexe manualmente o CSV baixado na conversa.</li>
+                        <li>Confira e envie.</li>
+                    </ol>
+                    <div class="snapshot-csv-export-actions">
+                        <button type="button" id="btn-download-snapshot-main-csv" class="snapshot-primary-download">Baixar CSV da consolidação</button>
+                        <button type="button" id="btn-download-snapshot-pending-csv">Baixar CSV de pendências</button>
                     </div>
+                    <p id="snapshot-csv-export-feedback" class="snapshot-csv-export-feedback" aria-live="polite"></p>
                     <p id="snapshot-whatsapp-target-status" class="snapshot-share-target-status"></p>
-                    <label for="snapshot-share-message">Mensagem pronta</label>
-                    <textarea id="snapshot-share-message" rows="8" readonly></textarea>
                     <div class="snapshot-share-actions">
                         <button type="button" id="btn-open-snapshot-whatsapp">Abrir WhatsApp com mensagem</button>
                         <button type="button" id="btn-copy-snapshot-share-message">Copiar mensagem</button>
                     </div>
-                    <p class="snapshot-share-manual-notice">O WhatsApp não permite anexar automaticamente pelo app. Baixe ou compartilhe o CSV e confirme o envio manualmente.</p>
+                    <label for="snapshot-share-message">Mensagem pronta</label>
+                    <textarea id="snapshot-share-message" rows="8" readonly></textarea>
+                    <p class="snapshot-share-manual-notice">O WhatsApp não permite anexar automaticamente o CSV por este app. Baixe o arquivo e anexe manualmente na conversa.</p>
                     <p id="snapshot-share-feedback" class="snapshot-share-feedback" aria-live="polite"></p>
                 </div>
+                <p id="snapshot-file-share-capability" class="snapshot-share-capability"></p>
+                <details id="snapshot-experimental-share" class="snapshot-experimental-share">
+                    <summary>Compartilhamento direto experimental</summary>
+                    <p>Este recurso depende do navegador e pode falhar. O download acima continua sendo o caminho recomendado.</p>
+                    <div class="snapshot-share-actions">
+                        <button type="button" id="btn-share-snapshot-main-csv">Compartilhar CSV pelo sistema (experimental)</button>
+                        <button type="button" id="btn-share-snapshot-pending-csv">Compartilhar pendências pelo sistema (experimental)</button>
+                    </div>
+                </details>
+                <p class="snapshot-csv-future-notice">A planilha XLSX semelhante ao modelo original será feita em etapa posterior.</p>
             </section>
             <h3 id="consolidation-snapshot-detail-title"></h3>
             <p id="consolidation-snapshot-detail-meta"></p>
