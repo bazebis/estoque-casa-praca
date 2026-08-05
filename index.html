@@ -155,13 +155,30 @@
                 <span>Os valores abaixo são os que existiam no momento do fechamento e não são recalculados.</span>
             </div>
             <section class="snapshot-csv-export-panel" aria-labelledby="snapshot-csv-export-title">
-                <h3 id="snapshot-csv-export-title">Exportação piloto</h3>
+                <h3 id="snapshot-csv-export-title">Exportar e compartilhar</h3>
                 <p>Os arquivos CSV usam exclusivamente esta foto salva. A planilha XLSX semelhante ao modelo original será feita em etapa posterior.</p>
                 <div class="snapshot-csv-export-actions">
                     <button type="button" id="btn-download-snapshot-main-csv">Baixar CSV da consolidação</button>
                     <button type="button" id="btn-download-snapshot-pending-csv">Baixar CSV de pendências</button>
                 </div>
                 <p id="snapshot-csv-export-feedback" class="snapshot-csv-export-feedback" aria-live="polite"></p>
+                <div class="snapshot-share-section">
+                    <h4>Compartilhamento assistido</h4>
+                    <p id="snapshot-file-share-capability" class="snapshot-share-capability"></p>
+                    <div class="snapshot-share-actions">
+                        <button type="button" id="btn-share-snapshot-main-csv">Compartilhar CSV da consolidação</button>
+                        <button type="button" id="btn-share-snapshot-pending-csv">Compartilhar CSV de pendências</button>
+                    </div>
+                    <p id="snapshot-whatsapp-target-status" class="snapshot-share-target-status"></p>
+                    <label for="snapshot-share-message">Mensagem pronta</label>
+                    <textarea id="snapshot-share-message" rows="8" readonly></textarea>
+                    <div class="snapshot-share-actions">
+                        <button type="button" id="btn-open-snapshot-whatsapp">Abrir WhatsApp com mensagem</button>
+                        <button type="button" id="btn-copy-snapshot-share-message">Copiar mensagem</button>
+                    </div>
+                    <p class="snapshot-share-manual-notice">O WhatsApp não permite anexar automaticamente pelo app. Baixe ou compartilhe o CSV e confirme o envio manualmente.</p>
+                    <p id="snapshot-share-feedback" class="snapshot-share-feedback" aria-live="polite"></p>
+                </div>
             </section>
             <h3 id="consolidation-snapshot-detail-title"></h3>
             <p id="consolidation-snapshot-detail-meta"></p>

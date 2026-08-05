@@ -69,6 +69,35 @@ export function showSnapshotCsvExportFeedback(message, tone = "") {
     feedback.dataset.tone = tone;
 }
 
+export function showSnapshotShareFeedback(message, tone = "") {
+    const feedback = getElement("snapshot-share-feedback");
+    feedback.textContent = message;
+    feedback.dataset.tone = tone;
+}
+
+function renderShareOptions(snapshot, options) {
+    const hasPending = snapshot.pendingEntries.length > 0;
+    const canShareFiles = options.shareCapability?.canShareFiles === true;
+    const shareButtons = [
+        getElement("btn-share-snapshot-main-csv"),
+        getElement("btn-share-snapshot-pending-csv")
+    ];
+    shareButtons[0].disabled = !canShareFiles;
+    shareButtons[1].disabled = !canShareFiles || !hasPending;
+    shareButtons[0].title = canShareFiles ? "Abrir o compartilhamento do aparelho" : "Use o download como alternativa";
+    shareButtons[1].title = !hasPending
+        ? "Este fechamento não possui pendências"
+        : shareButtons[0].title;
+    getElement("snapshot-file-share-capability").textContent = canShareFiles
+        ? "Compartilhamento de arquivo disponível neste navegador."
+        : "Compartilhamento de arquivo não disponível. Use o download ou a mensagem pronta.";
+    getElement("snapshot-whatsapp-target-status").textContent = options.whatsappConfigured
+        ? "O destinatário configurado neste aparelho será usado."
+        : "Nenhum número configurado: o WhatsApp permitirá escolher a conversa.";
+    getElement("snapshot-share-message").value = options.shareMessage || "";
+    showSnapshotShareFeedback("");
+}
+
 function renderSummary(snapshot) {
     const stats = [
         ["Status", getStatusLabel(snapshot.status)],
@@ -178,7 +207,7 @@ function renderPending(pending) {
     `;
 }
 
-export function renderConsolidationSnapshotDetail(snapshot) {
+export function renderConsolidationSnapshotDetail(snapshot, options = {}) {
     getElement("consolidation-snapshots-list-view").hidden = true;
     getElement("consolidation-snapshot-detail").hidden = false;
     getElement("consolidation-snapshot-detail-title").textContent = snapshot.label;
@@ -194,7 +223,15 @@ export function renderConsolidationSnapshotDetail(snapshot) {
     getElement("btn-download-snapshot-pending-csv").title = snapshot.pendingEntries.length
         ? "Baixar as pendências congeladas"
         : "Este fechamento não possui pendências";
+    renderShareOptions(snapshot, options);
     showSnapshotCsvExportFeedback("");
+}
+
+export function selectSnapshotShareMessage() {
+    const message = getElement("snapshot-share-message");
+    message.focus();
+    message.select();
+    message.setSelectionRange(0, message.value.length);
 }
 
 export function showConsolidationSnapshotsView() {
@@ -222,6 +259,10 @@ export function connectConsolidationSnapshotsEvents(handlers) {
     getElement("btn-back-consolidation-snapshot-list").addEventListener("click", handlers.onBackToList);
     getElement("btn-download-snapshot-main-csv").addEventListener("click", handlers.onExportMainCsv);
     getElement("btn-download-snapshot-pending-csv").addEventListener("click", handlers.onExportPendingCsv);
+    getElement("btn-share-snapshot-main-csv").addEventListener("click", handlers.onShareMainCsv);
+    getElement("btn-share-snapshot-pending-csv").addEventListener("click", handlers.onSharePendingCsv);
+    getElement("btn-open-snapshot-whatsapp").addEventListener("click", handlers.onOpenWhatsapp);
+    getElement("btn-copy-snapshot-share-message").addEventListener("click", handlers.onCopyMessage);
     getElement("consolidation-snapshots-list").addEventListener("click", (event) => {
         const openButton = event.target.closest("[data-open-consolidation-snapshot]");
         const deleteButton = event.target.closest("[data-delete-consolidation-snapshot]");

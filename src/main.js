@@ -36,11 +36,20 @@ import {
     hideConsolidationSnapshotsView,
     renderConsolidationSnapshotDetail,
     renderConsolidationSnapshotList,
+    selectSnapshotShareMessage,
     showConsolidationSnapshotsFeedback,
     showConsolidationSnapshotsView,
-    showSnapshotCsvExportFeedback
+    showSnapshotCsvExportFeedback,
+    showSnapshotShareFeedback
 } from "./consolidationSnapshotsUi.js";
 import { buildSnapshotCsvBundle, downloadTextFile as downloadSnapshotCsvFile } from "./snapshotCsvExport.js";
+import {
+    buildWhatsappMessage,
+    copyShareMessageToClipboard,
+    getShareCapability,
+    openWhatsappForSnapshot,
+    shareSnapshotCsv
+} from "./snapshotShare.js";
 import { buildCoverageReport } from "./countPreparation.js";
 import {
     connectCountPreparationEvents,
@@ -221,6 +230,8 @@ let selectedItemUnitTemplateId = null;
 let selectedCountConsolidationTemplateId = null;
 let activeCountConsolidationReport = null;
 let activeConsolidationSnapshotId = null;
+let activeConsolidationSnapshot = null;
+let activeSnapshotWhatsappSettings = normalizeWhatsappSettings();
 let activeAreaCountSessionId = null;
 let activeAreaOpenSessionCount = 0;
 let selectedLinkItemCode = null;
@@ -738,6 +749,7 @@ async function saveCurrentConsolidationSnapshot() {
 async function refreshConsolidationSnapshotsList() {
     const snapshots = await listConsolidationSnapshots();
     activeConsolidationSnapshotId = null;
+    activeConsolidationSnapshot = null;
     renderConsolidationSnapshotList(snapshots);
     return snapshots;
 }
@@ -755,18 +767,82 @@ async function openConsolidationSnapshots() {
 
 function closeConsolidationSnapshots() {
     activeConsolidationSnapshotId = null;
+    activeConsolidationSnapshot = null;
     hideConsolidationSnapshotsView();
 }
 
 async function openConsolidationSnapshotDetail(snapshotId) {
     try {
-        const snapshot = await getConsolidationSnapshot(snapshotId);
+        const [snapshot, whatsappSettings] = await Promise.all([
+            getConsolidationSnapshot(snapshotId),
+            loadWhatsappSettings().catch(() => normalizeWhatsappSettings())
+        ]);
         if (!snapshot) throw new Error("Fechamento não encontrado neste aparelho.");
         activeConsolidationSnapshotId = snapshot.id;
-        renderConsolidationSnapshotDetail(snapshot);
+        activeConsolidationSnapshot = snapshot;
+        activeSnapshotWhatsappSettings = whatsappSettings;
+        renderConsolidationSnapshotDetail(snapshot, {
+            shareCapability: getShareCapability(),
+            shareMessage: buildWhatsappMessage(snapshot, "main", whatsappSettings),
+            whatsappConfigured: isWhatsappConfigured(whatsappSettings)
+        });
         showConsolidationSnapshotsFeedback("");
     } catch (error) {
         showConsolidationSnapshotsFeedback(error.message || "Não foi possível abrir o fechamento.", "error");
+    }
+}
+
+function getActiveSnapshotForSharing() {
+    if (!activeConsolidationSnapshot || activeConsolidationSnapshot.id !== activeConsolidationSnapshotId) {
+        throw new Error("Abra um fechamento salvo antes de compartilhar.");
+    }
+    return activeConsolidationSnapshot;
+}
+
+async function shareSavedSnapshotCsv(kind) {
+    try {
+        const snapshot = getActiveSnapshotForSharing();
+        const result = await shareSnapshotCsv(snapshot, kind, activeSnapshotWhatsappSettings);
+        if (result.status === "canceled") {
+            showSnapshotShareFeedback("Compartilhamento cancelado.", "warning");
+            return;
+        }
+        if (result.status === "unsupported") {
+            showSnapshotShareFeedback("Compartilhamento de arquivo indisponível. Use o download.", "warning");
+            return;
+        }
+        showSnapshotShareFeedback(`Compartilhamento aberto para ${result.file.name}.`, "success");
+    } catch (error) {
+        showSnapshotShareFeedback(error.message || "Não foi possível compartilhar o CSV.", "error");
+    }
+}
+
+function openSavedSnapshotWhatsapp() {
+    try {
+        const snapshot = getActiveSnapshotForSharing();
+        const result = openWhatsappForSnapshot(snapshot, "main", activeSnapshotWhatsappSettings);
+        const message = result.status === "blocked"
+            ? "O navegador bloqueou o WhatsApp. Copie a mensagem e abra o aplicativo manualmente."
+            : "WhatsApp aberto com a mensagem pronta. Anexe o CSV e confirme o envio manualmente.";
+        showSnapshotShareFeedback(message, result.status === "blocked" ? "warning" : "success");
+    } catch (error) {
+        showSnapshotShareFeedback(error.message || "Não foi possível abrir o WhatsApp.", "error");
+    }
+}
+
+async function copySavedSnapshotMessage() {
+    try {
+        const snapshot = getActiveSnapshotForSharing();
+        const message = buildWhatsappMessage(snapshot, "main", activeSnapshotWhatsappSettings);
+        const result = await copyShareMessageToClipboard(message);
+        if (result.status === "copied") {
+            showSnapshotShareFeedback("Mensagem copiada.", "success");
+            return;
+        }
+        selectSnapshotShareMessage();
+        showSnapshotShareFeedback("Cópia automática indisponível. O texto foi selecionado para copiar manualmente.", "warning");
+    } catch (error) {
+        showSnapshotShareFeedback(error.message || "Não foi possível copiar a mensagem.", "error");
     }
 }
 
@@ -1809,7 +1885,11 @@ connectConsolidationSnapshotsEvents({
     onOpenDetail: openConsolidationSnapshotDetail,
     onDelete: deleteSavedConsolidationSnapshot,
     onExportMainCsv: () => exportSavedSnapshotCsv("main"),
-    onExportPendingCsv: () => exportSavedSnapshotCsv("pending")
+    onExportPendingCsv: () => exportSavedSnapshotCsv("pending"),
+    onShareMainCsv: () => shareSavedSnapshotCsv("main"),
+    onSharePendingCsv: () => shareSavedSnapshotCsv("pending"),
+    onOpenWhatsapp: openSavedSnapshotWhatsapp,
+    onCopyMessage: copySavedSnapshotMessage
 });
 
 renderUnitOptions();
