@@ -1385,6 +1385,195 @@ select {
     background-color: var(--color-danger-hover);
 }
 
+/* read-only location item map */
+.location-item-map-section > p,
+.location-item-map-feedback,
+.location-item-map-requirement p,
+.location-item-map-counts,
+.location-item-map-card > p,
+.location-item-map-empty-note,
+.location-item-map-item span {
+    color: var(--color-text-muted);
+}
+
+#location-item-map-template-field {
+    display: grid;
+    gap: var(--space-1);
+    margin-top: var(--space-4);
+    text-align: left;
+    font-weight: 700;
+}
+
+#location-item-map-template-field[hidden],
+#location-item-map-workspace[hidden],
+.location-item-map-requirement[hidden] {
+    display: none;
+}
+
+.location-item-map-navigation-actions {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.location-item-map-navigation-actions button {
+    min-height: 44px;
+    background-color: var(--color-surface-soft);
+}
+
+.location-item-map-feedback {
+    min-height: 1.4em;
+    margin: var(--space-3) 0;
+}
+
+.location-item-map-feedback[data-tone="error"] {
+    color: #ffb4b4;
+}
+
+.location-item-map-requirement,
+.location-item-map-filter-panel,
+.location-item-map-content,
+.location-item-map-diagnostic-section {
+    margin-bottom: var(--space-3);
+    padding: var(--space-3);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    text-align: left;
+}
+
+.location-item-map-requirement h4,
+.location-item-map-requirement p,
+.location-item-map-content > h4,
+.location-item-map-diagnostic-section > h4,
+.location-item-map-card h4,
+.location-item-map-card p {
+    margin: 0;
+}
+
+.location-item-map-requirement p,
+.location-item-map-card p {
+    margin-top: var(--space-1);
+}
+
+#location-item-map-workspace {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.location-item-map-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+    margin: 0;
+}
+
+.location-item-map-stat {
+    min-width: 0;
+    padding: var(--space-2);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.location-item-map-stat dt {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.location-item-map-stat dd {
+    margin: var(--space-1) 0 0;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.location-item-map-filter-panel {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.location-item-map-filter-panel label {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    min-height: 44px;
+}
+
+.location-item-map-filter-panel input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+}
+
+.location-item-map-locations,
+.location-item-map-diagnostics {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+}
+
+.location-item-map-card {
+    min-width: 0;
+    margin-left: min(calc(var(--location-map-depth, 0) * 12px), 48px);
+    padding: var(--space-3);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    overflow-wrap: anywhere;
+}
+
+.location-item-map-card.has-warning {
+    border-color: #967629;
+}
+
+.location-item-map-item-list {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.location-item-map-item {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.location-item-map-item.is-inactive {
+    opacity: 0.65;
+}
+
+.location-item-map-warning {
+    color: #ffe49c;
+}
+
+.location-item-map-inactive-links,
+.location-item-map-diagnostic {
+    margin-top: var(--space-3);
+    padding: var(--space-2);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.location-item-map-inactive-links summary,
+.location-item-map-diagnostic summary {
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.location-item-map-diagnostic ul {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-5);
+}
+
+.location-item-map-diagnostic li {
+    margin-bottom: var(--space-2);
+    overflow-wrap: anywhere;
+}
+
 /* counting */
 .counting-container {
     display: none;
@@ -1698,6 +1887,10 @@ select {
     .item-location-filters,
     .item-location-link-actions {
         grid-template-columns: repeat(2, 1fr);
+    }
+
+    .location-item-map-navigation-actions {
+        grid-template-columns: repeat(3, 1fr);
     }
 }
 

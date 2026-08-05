@@ -30,6 +30,12 @@ import {
     renderItemLocationLinks,
     showItemLocationLinksFeedback
 } from "./itemLocationLinksUi.js";
+import { buildLocationItemMap } from "./locationItemMap.js";
+import {
+    connectLocationItemMapEvents,
+    renderLocationItemMap,
+    showLocationItemMapFeedback
+} from "./locationItemMapUi.js";
 import {
     connectLocationNodeEvents,
     renderLocationNodes,
@@ -98,6 +104,7 @@ import {
     showCountPreparationAdminSection,
     showCountTemplatesAdminSection,
     showItemLocationLinksAdminSection,
+    showLocationItemMapAdminSection,
     showLocationNodesAdminSection,
     showUnitsFeedback,
     updateConfigList
@@ -117,6 +124,7 @@ let pendingCatalogImport = null;
 let pendingBackupImport = null;
 let selectedCountPreparationTemplateId = null;
 let selectedItemLinksTemplateId = null;
+let selectedLocationItemMapTemplateId = null;
 let selectedLinkItemCode = null;
 let itemLinksLocationFilter = "";
 let itemLinksItemFilter = "";
@@ -521,6 +529,11 @@ async function openPilotItemLocationLinks() {
     await openItemLocationLinks();
 }
 
+async function openPilotLocationItemMap() {
+    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "location-item-map");
+    await openLocationItemMap();
+}
+
 function openPilotAbout() {
     openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "about");
 }
@@ -874,6 +887,45 @@ async function filterItemLinksByItem(itemCode) {
     await refreshItemLocationLinksView();
 }
 
+async function refreshLocationItemMapView() {
+    const [templates, locations, links] = await Promise.all([
+        listCountTemplates(),
+        listLocationNodes(),
+        listItemLocationLinks()
+    ]);
+    const selectedTemplate = templates.find((template) => template.id === selectedLocationItemMapTemplateId)
+        || templates[0]
+        || null;
+
+    selectedLocationItemMapTemplateId = selectedTemplate?.id || null;
+    renderLocationItemMap({
+        templates,
+        selectedTemplate,
+        report: selectedTemplate ? buildLocationItemMap(selectedTemplate, templates, locations, links) : null
+    });
+}
+
+async function openLocationItemMap() {
+    showLocationItemMapAdminSection();
+    showLocationItemMapFeedback("");
+
+    try {
+        await refreshLocationItemMapView();
+    } catch {
+        showLocationItemMapFeedback("Não foi possível montar o mapa de itens por local.", "error");
+    }
+}
+
+async function selectLocationItemMapTemplate(templateId) {
+    selectedLocationItemMapTemplateId = templateId;
+
+    try {
+        await refreshLocationItemMapView();
+    } catch {
+        showLocationItemMapFeedback("Não foi possível analisar o template selecionado.", "error");
+    }
+}
+
 function getNextSiblingOrder(parentId, nodes) {
     const siblingOrders = nodes
         .filter((node) => node.parentId === parentId)
@@ -1037,12 +1089,14 @@ connectEvents({
     onOpenPilotLocationNodes: openPilotLocationNodes,
     onOpenPilotCountPreparation: openPilotCountPreparation,
     onOpenPilotItemLocationLinks: openPilotItemLocationLinks,
+    onOpenPilotLocationItemMap: openPilotLocationItemMap,
     onOpenPilotAbout: openPilotAbout,
     onOpenHistory: openHistory,
     onOpenCountTemplates: openCountTemplates,
     onOpenLocationNodes: openLocationNodes,
     onOpenCountPreparation: openCountPreparation,
     onOpenItemLocationLinks: openItemLocationLinks,
+    onOpenLocationItemMap: openLocationItemMap,
     onCloseHistory: closeHistory,
     onAddItem: addItem,
     onAddUnit: addCustomUnit,
@@ -1073,6 +1127,12 @@ connectItemLocationLinkEvents({
     onFilterItem: filterItemLinksByItem,
     onOpenTemplates: openCountTemplates,
     onOpenLocations: openLocationNodes
+});
+connectLocationItemMapEvents({
+    onSelectTemplate: selectLocationItemMapTemplate,
+    onOpenTemplates: openCountTemplates,
+    onOpenLocations: openLocationNodes,
+    onOpenLinks: openItemLocationLinks
 });
 
 renderUnitOptions();
