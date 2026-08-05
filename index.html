@@ -56,12 +56,22 @@
         </div>
         <p id="area-counting-session-warning" class="area-counting-warning" hidden></p>
         <p class="area-counting-unit-notice">A unidade é texto livre. Unidades diferentes não são convertidas nem somadas.</p>
-        <label class="area-counting-search-field" for="area-counting-search">
-            Buscar item por código ou nome
-            <input type="search" id="area-counting-search" autocomplete="off" placeholder="Digite para filtrar">
-        </label>
         <p id="area-counting-feedback" class="area-counting-feedback" aria-live="polite"></p>
+        <div class="area-counting-guided-navigation" aria-label="Navegação entre itens">
+            <button type="button" id="btn-previous-area-item">Anterior</button>
+            <strong id="area-counting-current-index">Item 1 de 1</strong>
+            <button type="button" id="btn-next-area-item">Próximo</button>
+        </div>
         <div id="area-counting-items" class="area-counting-items"></div>
+        <details class="area-counting-search-panel">
+            <summary>Localizar outro item</summary>
+            <label class="area-counting-search-field" for="area-counting-search">
+                Buscar por código, nome ou grupo
+                <input type="search" id="area-counting-search" autocomplete="off" placeholder="Digite para localizar">
+            </label>
+            <p id="area-counting-search-guidance" class="area-counting-search-guidance"></p>
+            <div id="area-counting-search-results" class="area-counting-search-results"></div>
+        </details>
     </section>
 
     <section id="rascunho-aviso" class="draft-notice pilot-hidden" hidden></section>

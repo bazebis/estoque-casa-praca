@@ -12,6 +12,15 @@ function formatSessionStatus(status) {
     return status === "in_progress" ? "Em andamento" : "Rascunho";
 }
 
+// The guided position is UI-only so counting records remain independent from navigation preferences.
+let activeViewModel = null;
+let currentItemIndex = 0;
+
+const shortDateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short"
+});
+
 function renderOverviewGuidance(overview) {
     if (!overview.hasTemplate) {
         return "Importe um template e execute Configurações → Piloto rápido para liberar as áreas.";
@@ -47,11 +56,16 @@ export function renderAreaCountingOverview(overview) {
 
 function renderEntry(entry) {
     const unit = entry.rawUnit || "sem unidade";
+    const createdAt = new Date(entry.createdAt);
+    const timestamp = Number.isNaN(createdAt.getTime())
+        ? "horário indisponível"
+        : shortDateTimeFormatter.format(createdAt);
     return `
         <li class="area-count-entry">
             <div>
                 <strong>${escapeHtml(entry.rawQuantityText.trim())} ${escapeHtml(unit)}</strong>
-                ${entry.notes ? `<span>${escapeHtml(entry.notes)}</span>` : ""}
+                <span>${escapeHtml(timestamp)}</span>
+                ${entry.notes ? `<span>Observação registrada anteriormente: ${escapeHtml(entry.notes)}</span>` : ""}
             </div>
             <button type="button" data-remove-area-entry="${escapeHtml(entry.id)}">Remover</button>
         </li>
@@ -67,9 +81,8 @@ function formatSubtotal(summary) {
 
 function renderItemCard(item, summary, lastUsedUnit) {
     const activeEntries = summary?.activeEntries || [];
-    const searchText = `${item.itemCode} ${item.itemNameSnapshot} ${item.groupNameSnapshot}`.toLocaleLowerCase("pt-BR");
     return `
-        <article class="area-count-item-card" data-area-item-search="${escapeHtml(searchText)}">
+        <article class="area-count-item-card" tabindex="-1">
             <header>
                 <span>${escapeHtml(item.groupNameSnapshot)}</span>
                 <h3>${escapeHtml(item.itemNameSnapshot)}</h3>
@@ -77,7 +90,12 @@ function renderItemCard(item, summary, lastUsedUnit) {
             </header>
             <p class="area-count-subtotal"><strong>Subtotal:</strong> ${escapeHtml(formatSubtotal(summary))}</p>
             ${summary?.removedEntryCount ? `<p class="area-count-removed">${summary.removedEntryCount} entrada(s) removida(s)</p>` : ""}
-            <ul class="area-count-entry-list">${activeEntries.map(renderEntry).join("")}</ul>
+            <section class="area-count-entry-section" aria-label="Aferições do item atual">
+                <h4>Aferições deste item</h4>
+                ${activeEntries.length
+        ? `<ul class="area-count-entry-list">${activeEntries.map(renderEntry).join("")}</ul>`
+        : '<p class="area-count-empty-entries">Nenhuma aferição registrada. Você pode pular este item.</p>'}
+            </section>
             <form class="area-count-entry-form" data-item-code="${escapeHtml(item.itemCode)}" data-link-id="${escapeHtml(item.linkId)}">
                 <label>Quantidade
                     <input type="text" name="quantity" inputmode="decimal" required maxlength="80" autocomplete="off" placeholder="Ex.: 1,5">
@@ -85,17 +103,91 @@ function renderItemCard(item, summary, lastUsedUnit) {
                 <label>Unidade livre
                     <input type="text" name="unit" maxlength="60" autocomplete="off" value="${escapeHtml(lastUsedUnit)}" placeholder="Ex.: un, kg, caixa">
                 </label>
-                <label>Observação opcional
-                    <input type="text" name="notes" maxlength="500" autocomplete="off">
-                </label>
                 <button type="submit">Adicionar entrada</button>
             </form>
         </article>
     `;
 }
 
+function getCurrentItemKey() {
+    const item = activeViewModel?.session.plannedItems[currentItemIndex];
+    return item ? `${item.itemCode}::${item.linkId}` : "";
+}
+
+function findItemIndexByKey(items, itemKey) {
+    return items.findIndex((item) => `${item.itemCode}::${item.linkId}` === itemKey);
+}
+
+function updateNavigationButtons(itemCount) {
+    getElement("btn-previous-area-item").disabled = currentItemIndex <= 0;
+    getElement("btn-next-area-item").disabled = itemCount === 0 || currentItemIndex >= itemCount - 1;
+}
+
+function renderCurrentItem(shouldFocus = false) {
+    const items = activeViewModel?.session.plannedItems || [];
+    const currentItem = items[currentItemIndex];
+    getElement("area-counting-current-index").textContent = currentItem
+        ? `Item ${currentItemIndex + 1} de ${items.length}`
+        : "Nenhum item planejado";
+    updateNavigationButtons(items.length);
+
+    getElement("area-counting-items").innerHTML = currentItem
+        ? renderItemCard(
+            currentItem,
+            activeViewModel.entriesByItem.get(currentItem.itemCode),
+            activeViewModel.lastUsedUnit
+        )
+        : '<p class="area-counting-warning">Esta sessão não possui itens planejados.</p>';
+    if (shouldFocus) getElement("area-counting-items").querySelector("article")?.focus();
+}
+
+function matchesSearch(item, query) {
+    const searchText = `${item.itemCode} ${item.itemNameSnapshot} ${item.groupNameSnapshot}`
+        .toLocaleLowerCase("pt-BR");
+    return searchText.includes(query);
+}
+
+function renderSearchResult(item, itemIndex) {
+    return `
+        <button type="button" class="area-count-search-result" data-area-item-index="${itemIndex}">
+            <strong>${escapeHtml(item.itemNameSnapshot)}</strong>
+            <span>${escapeHtml(item.itemCode)} · ${escapeHtml(item.groupNameSnapshot)}</span>
+        </button>
+    `;
+}
+
+function renderSearchResults(searchText) {
+    const query = searchText.trim().toLocaleLowerCase("pt-BR");
+    const resultContainer = getElement("area-counting-search-results");
+    const guidance = getElement("area-counting-search-guidance");
+    if (!query) {
+        guidance.textContent = "Digite para localizar e ir diretamente a outro item.";
+        resultContainer.innerHTML = "";
+        return;
+    }
+
+    const matches = (activeViewModel?.session.plannedItems || [])
+        .map((item, itemIndex) => ({ item, itemIndex }))
+        .filter(({ item }) => matchesSearch(item, query));
+    const visibleMatches = matches.slice(0, 12);
+    guidance.textContent = matches.length
+        ? `${matches.length} item(ns) encontrado(s)${matches.length > visibleMatches.length ? "; mostrando os primeiros 12" : ""}.`
+        : "Nenhum item encontrado.";
+    resultContainer.innerHTML = visibleMatches
+        .map(({ item, itemIndex }) => renderSearchResult(item, itemIndex))
+        .join("");
+}
+
 export function renderAreaCountingView(viewModel, multipleSessionCount = 0) {
+    const previousSessionId = activeViewModel?.session.id;
+    const previousItemKey = getCurrentItemKey();
     const { session, entriesByItem, progress, lastUsedUnit } = viewModel;
+    activeViewModel = { session, entriesByItem, progress, lastUsedUnit };
+    const preservedIndex = previousSessionId === session.id
+        ? findItemIndexByKey(session.plannedItems, previousItemKey)
+        : -1;
+    currentItemIndex = preservedIndex >= 0 ? preservedIndex : 0;
+
     getElement("area-counting-title").textContent = session.reportAreaSnapshot || session.locationPathSnapshot.at(-1);
     getElement("area-counting-template").textContent = session.templateNameSnapshot;
     getElement("area-counting-status").textContent = formatSessionStatus(session.status);
@@ -106,10 +198,9 @@ export function renderAreaCountingView(viewModel, multipleSessionCount = 0) {
     getElement("area-counting-session-warning").textContent = multipleSessionCount < 2
         ? ""
         : `${multipleSessionCount} sessões abertas foram encontradas. A sessão mais recente está sendo usada.`;
-    getElement("area-counting-items").innerHTML = session.plannedItems.map((item) => (
-        renderItemCard(item, entriesByItem.get(item.itemCode), lastUsedUnit)
-    )).join("");
-    getElement("area-counting-search").value = "";
+    if (previousSessionId !== session.id) getElement("area-counting-search").value = "";
+    renderCurrentItem();
+    renderSearchResults(getElement("area-counting-search").value);
 }
 
 export function showAreaCountingView() {
@@ -121,6 +212,8 @@ export function showAreaCountingView() {
 export function hideAreaCountingView() {
     getElement("area-counting-view").hidden = true;
     getElement("pilot-dashboard").hidden = false;
+    activeViewModel = null;
+    currentItemIndex = 0;
 }
 
 export function showAreaCountingFeedback(message, tone = "") {
@@ -129,11 +222,12 @@ export function showAreaCountingFeedback(message, tone = "") {
     feedback.dataset.tone = tone;
 }
 
-function filterVisibleItems(searchText) {
-    const query = searchText.trim().toLocaleLowerCase("pt-BR");
-    document.querySelectorAll("[data-area-item-search]").forEach((card) => {
-        card.hidden = Boolean(query) && !card.dataset.areaItemSearch.includes(query);
-    });
+function goToItem(itemIndex) {
+    const itemCount = activeViewModel?.session.plannedItems.length || 0;
+    if (!Number.isInteger(itemIndex) || itemIndex < 0 || itemIndex >= itemCount) return;
+    currentItemIndex = itemIndex;
+    showAreaCountingFeedback("");
+    renderCurrentItem(true);
 }
 
 function getEntryFormValues(form) {
@@ -142,7 +236,7 @@ function getEntryFormValues(form) {
         linkId: form.dataset.linkId,
         rawQuantityText: form.elements.quantity.value,
         rawUnit: form.elements.unit.value,
-        notes: form.elements.notes.value
+        notes: ""
     };
 }
 
@@ -152,7 +246,13 @@ export function connectAreaCountingEvents(handlers) {
         if (button && !button.disabled) handlers.onOpenArea(button.dataset.areaLocationId);
     });
     getElement("btn-close-area-counting").addEventListener("click", handlers.onCloseArea);
-    getElement("area-counting-search").addEventListener("input", (event) => filterVisibleItems(event.target.value));
+    getElement("btn-previous-area-item").addEventListener("click", () => goToItem(currentItemIndex - 1));
+    getElement("btn-next-area-item").addEventListener("click", () => goToItem(currentItemIndex + 1));
+    getElement("area-counting-search").addEventListener("input", (event) => renderSearchResults(event.target.value));
+    getElement("area-counting-search-results").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-area-item-index]");
+        if (button) goToItem(Number(button.dataset.areaItemIndex));
+    });
     getElement("area-counting-items").addEventListener("submit", async (event) => {
         const form = event.target.closest(".area-count-entry-form");
         if (!form) return;
