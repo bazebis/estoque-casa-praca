@@ -2,9 +2,15 @@ import { initialCatalogItems } from "./seed.js";
 import { normalizeHistoryEntry } from "./history.js";
 import { normalizeCountTemplate } from "./countTemplates.js";
 import {
+    findTemplateItem,
     normalizeItemLocationLinks,
     validateItemLocationLink
 } from "./itemLocationLinks.js";
+import {
+    inferUnitForTemplateItem,
+    normalizeItemUnitSettings,
+    validateItemUnitSetting
+} from "./itemUnitSettings.js";
 import {
     getLocationPath,
     normalizeLocationNodes,
@@ -47,6 +53,7 @@ const itemLocationLinksStorageKey = "itemLocationLinks";
 const locationCountSessionsStorageKey = "locationCountSessions";
 const locationCountEntriesStorageKey = "locationCountEntries";
 const whatsappSettingsStorageKey = "whatsappSettings";
+const itemUnitSettingsStorageKey = "itemUnitSettings";
 const migrationFlagKey = "localStorageMigrationCompleted";
 const countTemplatesMigrationFlagKey = "countTemplatesLocalStorageMigrationCompleted";
 const locationNodesMigrationFlagKey = "locationNodesLocalStorageMigrationCompleted";
@@ -262,6 +269,24 @@ function saveLocalWhatsappSettings(settings) {
 
 function clearLocalWhatsappSettings() {
     localStorage.removeItem(whatsappSettingsStorageKey);
+}
+
+function sortItemUnitSettings(settings) {
+    return normalizeItemUnitSettings(settings).sort((firstSetting, secondSetting) => (
+        firstSetting.templateId.localeCompare(secondSetting.templateId, "pt-BR")
+        || firstSetting.groupNameSnapshot.localeCompare(secondSetting.groupNameSnapshot, "pt-BR")
+        || firstSetting.itemNameSnapshot.localeCompare(secondSetting.itemNameSnapshot, "pt-BR")
+    ));
+}
+
+function loadLocalItemUnitSettings() {
+    return sortItemUnitSettings(readJson(itemUnitSettingsStorageKey) || []);
+}
+
+function saveLocalItemUnitSettings(settings) {
+    const normalizedSettings = sortItemUnitSettings(settings);
+    writeJson(itemUnitSettingsStorageKey, normalizedSettings);
+    return normalizedSettings;
 }
 
 function sortLocationCountSessions(sessions) {
@@ -958,6 +983,74 @@ export async function clearWhatsappSettings() {
         clearLocalWhatsappSettings
     );
     clearLocalWhatsappSettings();
+}
+
+export async function listItemUnitSettings() {
+    return runWithFallback(async () => {
+        const storedState = await getFromStore(storeNames.appState, itemUnitSettingsStorageKey);
+        return storedState ? sortItemUnitSettings(storedState.value) : loadLocalItemUnitSettings();
+    }, loadLocalItemUnitSettings);
+}
+
+export async function getItemUnitSetting(templateId, itemCode) {
+    const normalizedTemplateId = String(templateId || "").trim();
+    const normalizedItemCode = String(itemCode || "").trim();
+    return (await listItemUnitSettings()).find((setting) => (
+        setting.templateId === normalizedTemplateId && setting.itemCode === normalizedItemCode
+    )) || null;
+}
+
+async function saveItemUnitSettingsState(settings) {
+    const normalizedSettings = sortItemUnitSettings(settings);
+    await runWithFallback(
+        () => putInStore(storeNames.appState, { key: itemUnitSettingsStorageKey, value: normalizedSettings }),
+        () => saveLocalItemUnitSettings(normalizedSettings)
+    );
+    saveLocalItemUnitSettings(normalizedSettings);
+    return normalizedSettings;
+}
+
+export async function saveItemUnitSetting(setting) {
+    const template = await getCountTemplate(setting?.templateId);
+    const match = findTemplateItem(template, setting?.itemCode);
+    if (!match) throw new Error("O item não existe no template selecionado.");
+
+    const currentSettings = await listItemUnitSettings();
+    const existingSetting = currentSettings.find((item) => item.id === setting.id);
+    const timestamp = new Date().toISOString();
+    const validation = validateItemUnitSetting({
+        ...setting,
+        itemNameSnapshot: match.item.name,
+        groupId: match.group.id,
+        groupNameSnapshot: match.group.name,
+        createdAt: existingSetting?.createdAt || setting.createdAt || timestamp,
+        updatedAt: timestamp
+    });
+    if (!validation.isValid) throw new Error(validation.error || "Configuração de unidade inválida.");
+
+    const nextSettings = currentSettings.filter((item) => item.id !== validation.setting.id);
+    await saveItemUnitSettingsState([...nextSettings, validation.setting]);
+    return validation.setting;
+}
+
+export async function deleteItemUnitSetting(templateId, itemCode) {
+    const normalizedTemplateId = String(templateId || "").trim();
+    const normalizedItemCode = String(itemCode || "").trim();
+    const remainingSettings = (await listItemUnitSettings()).filter((setting) => !(
+        setting.templateId === normalizedTemplateId && setting.itemCode === normalizedItemCode
+    ));
+    await saveItemUnitSettingsState(remainingSettings);
+}
+
+export async function getEffectiveUnit(templateId, itemCode) {
+    const savedSetting = await getItemUnitSetting(templateId, itemCode);
+    if (savedSetting?.effectiveUnit) return savedSetting.effectiveUnit;
+
+    const [template, entries] = await Promise.all([
+        getCountTemplate(templateId),
+        listLocationCountEntries()
+    ]);
+    return inferUnitForTemplateItem(template, itemCode, entries)?.effectiveUnit || "";
 }
 
 export async function listLocationCountSessions() {

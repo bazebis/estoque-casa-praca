@@ -43,6 +43,15 @@ import {
     renderItemLocationLinks,
     showItemLocationLinksFeedback
 } from "./itemLocationLinksUi.js";
+import {
+    resolveItemUnitSettings,
+    summarizeItemUnitSettings
+} from "./itemUnitSettings.js";
+import {
+    connectItemUnitSettingsEvents,
+    renderItemUnitSettings,
+    showItemUnitSettingsFeedback
+} from "./itemUnitSettingsUi.js";
 import { buildLocationItemMap } from "./locationItemMap.js";
 import {
     connectLocationItemMapEvents,
@@ -77,6 +86,7 @@ import {
     clearCountingDraft,
     createLocationCountSessionDraft,
     deleteCountTemplate,
+    deleteItemUnitSetting,
     deleteItemLocationLink,
     deleteLocationNode,
     deleteLocationCountSession,
@@ -92,6 +102,7 @@ import {
     loadCustomUnits,
     loadRelevantLocalStorageKeys,
     listCountTemplates,
+    listItemUnitSettings,
     listItemLocationLinks,
     listLinksByTemplate,
     listLocationNodes,
@@ -104,6 +115,7 @@ import {
     saveCountingHistory,
     saveCountingDraft,
     saveCountTemplate,
+    saveItemUnitSetting,
     saveItemLocationLink,
     saveItemLocationLinksBatch,
     saveLocationCountSession,
@@ -147,6 +159,7 @@ import {
     showCountPreparationAdminSection,
     showCountTemplatesAdminSection,
     showItemLocationLinksAdminSection,
+    showItemUnitSettingsAdminSection,
     showLocationCountSessionsAdminSection,
     showLocationItemMapAdminSection,
     showLocationNodesAdminSection,
@@ -180,6 +193,7 @@ let selectedLocationItemMapTemplateId = null;
 let selectedLocationCountSessionTemplateId = null;
 let selectedLocationCountSessionLocationId = null;
 let selectedQuickPilotTemplateId = null;
+let selectedItemUnitTemplateId = null;
 let activeAreaCountSessionId = null;
 let activeAreaOpenSessionCount = 0;
 let selectedLinkItemCode = null;
@@ -606,12 +620,18 @@ async function refreshPilotDashboard() {
 }
 
 async function refreshAreaCountingView() {
-    const [session, entries] = await Promise.all([
-        getLocationCountSession(activeAreaCountSessionId),
-        listLocationCountEntries()
-    ]);
+    const session = await getLocationCountSession(activeAreaCountSessionId);
     if (!session) throw new Error("A sessão de contagem não foi encontrada.");
-    renderAreaCountingView(buildAreaCountingViewModel(session, entries), activeAreaOpenSessionCount);
+    const [entries, template, savedUnitSettings] = await Promise.all([
+        listLocationCountEntries(),
+        getCountTemplate(session.templateId),
+        listItemUnitSettings()
+    ]);
+    const unitSettings = resolveItemUnitSettings(template, savedUnitSettings, entries);
+    renderAreaCountingView(
+        buildAreaCountingViewModel(session, entries, unitSettings),
+        activeAreaOpenSessionCount
+    );
     return session;
 }
 
@@ -750,6 +770,88 @@ async function applyQuickPilotSetup() {
         );
     } catch (error) {
         showQuickPilotFeedback(error.message || "Não foi possível aplicar a configuração automática.", "error");
+    }
+}
+
+async function loadItemUnitSettingsContext() {
+    const [templates, savedSettings, entries] = await Promise.all([
+        listCountTemplates(),
+        listItemUnitSettings(),
+        listLocationCountEntries()
+    ]);
+    const selectedTemplate = templates.find((template) => template.id === selectedItemUnitTemplateId)
+        || templates[0]
+        || null;
+    selectedItemUnitTemplateId = selectedTemplate?.id || null;
+    const settings = resolveItemUnitSettings(selectedTemplate, savedSettings, entries);
+    return {
+        templates,
+        selectedTemplate,
+        settings,
+        summary: summarizeItemUnitSettings(selectedTemplate, settings)
+    };
+}
+
+async function refreshItemUnitSettingsView() {
+    const context = await loadItemUnitSettingsContext();
+    renderItemUnitSettings(context);
+    return context;
+}
+
+async function openItemUnitSettings() {
+    showItemUnitSettingsAdminSection();
+    showItemUnitSettingsFeedback("");
+    try {
+        await refreshItemUnitSettingsView();
+    } catch {
+        showItemUnitSettingsFeedback("Não foi possível analisar as unidades dos itens.", "error");
+    }
+}
+
+async function selectItemUnitTemplate(templateId) {
+    selectedItemUnitTemplateId = templateId;
+    await openItemUnitSettings();
+}
+
+async function analyzeItemUnits() {
+    try {
+        const context = await refreshItemUnitSettingsView();
+        showItemUnitSettingsFeedback(
+            `${context.summary.effectiveUnitCount} de ${context.summary.itemCount} item(ns) possuem unidade efetiva.`,
+            context.summary.withoutUnitCount ? "warning" : "success"
+        );
+    } catch {
+        showItemUnitSettingsFeedback("Não foi possível atualizar as sugestões.", "error");
+    }
+}
+
+async function saveManualItemUnit(itemCode, manualUnit) {
+    const normalizedManualUnit = String(manualUnit || "").trim();
+    if (!normalizedManualUnit) {
+        showItemUnitSettingsFeedback("Informe uma unidade ou use Limpar manual.", "warning");
+        return;
+    }
+
+    try {
+        const context = await loadItemUnitSettingsContext();
+        const setting = context.settings.find((item) => item.itemCode === itemCode);
+        if (!setting) throw new Error("Item não encontrado no template selecionado.");
+        await saveItemUnitSetting({ ...setting, manualUnit: normalizedManualUnit });
+        await refreshItemUnitSettingsView();
+        showItemUnitSettingsFeedback("Unidade manual salva neste aparelho.", "success");
+    } catch (error) {
+        showItemUnitSettingsFeedback(error.message || "Não foi possível salvar a unidade.", "error");
+    }
+}
+
+async function clearManualItemUnit(itemCode) {
+    if (!window.confirm("Limpar a unidade manual deste item e voltar à sugestão automática?")) return;
+    try {
+        await deleteItemUnitSetting(selectedItemUnitTemplateId, itemCode);
+        await refreshItemUnitSettingsView();
+        showItemUnitSettingsFeedback("Unidade manual removida; a sugestão automática voltou a valer.", "success");
+    } catch {
+        showItemUnitSettingsFeedback("Não foi possível limpar a unidade manual.", "error");
     }
 }
 
@@ -1442,6 +1544,7 @@ connectEvents({
     onOpenQuickPilot: openQuickPilot,
     onOpenWhatsappSettings: openWhatsappSettings,
     onOpenCountTemplates: openCountTemplates,
+    onOpenItemUnitSettings: openItemUnitSettings,
     onOpenLocationNodes: openLocationNodes,
     onOpenCountPreparation: openCountPreparation,
     onOpenItemLocationLinks: openItemLocationLinks,
@@ -1461,6 +1564,12 @@ connectEvents({
 });
 
 connectCountTemplateEvents(countTemplateHandlers);
+connectItemUnitSettingsEvents({
+    onSelectTemplate: selectItemUnitTemplate,
+    onAnalyze: analyzeItemUnits,
+    onSaveManual: saveManualItemUnit,
+    onClearManual: clearManualItemUnit
+});
 connectLocationNodeEvents(locationNodeHandlers);
 connectCountPreparationEvents({
     onSelectTemplate: selectCountPreparationTemplate,

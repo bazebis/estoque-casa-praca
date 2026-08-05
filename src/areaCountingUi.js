@@ -79,8 +79,15 @@ function formatSubtotal(summary) {
     return `${summary.subtotal}${unit}`;
 }
 
-function renderItemCard(item, summary, lastUsedUnit) {
+function formatUnitHint(setting) {
+    if (!setting?.effectiveUnit) return "";
+    const label = setting.manualUnit ? "Unidade padrão manual" : "Unidade sugerida";
+    return `<p class="area-count-unit-hint">${label}: <strong>${escapeHtml(setting.effectiveUnit)}</strong></p>`;
+}
+
+function renderItemCard(item, summary, lastUsedUnit, unitSetting) {
     const activeEntries = summary?.activeEntries || [];
+    const initialUnit = unitSetting?.effectiveUnit || lastUsedUnit;
     return `
         <article class="area-count-item-card" tabindex="-1">
             <header>
@@ -89,6 +96,7 @@ function renderItemCard(item, summary, lastUsedUnit) {
                 <p>Código: ${escapeHtml(item.itemCode)}</p>
             </header>
             <p class="area-count-subtotal"><strong>Subtotal:</strong> ${escapeHtml(formatSubtotal(summary))}</p>
+            ${formatUnitHint(unitSetting)}
             ${summary?.removedEntryCount ? `<p class="area-count-removed">${summary.removedEntryCount} entrada(s) removida(s)</p>` : ""}
             <section class="area-count-entry-section" aria-label="Aferições do item atual">
                 <h4>Aferições deste item</h4>
@@ -101,7 +109,7 @@ function renderItemCard(item, summary, lastUsedUnit) {
                     <input type="text" name="quantity" inputmode="decimal" required maxlength="80" autocomplete="off" placeholder="Ex.: 1,5">
                 </label>
                 <label>Unidade livre
-                    <input type="text" name="unit" maxlength="60" autocomplete="off" value="${escapeHtml(lastUsedUnit)}" placeholder="Ex.: un, kg, caixa">
+                    <input type="text" name="unit" maxlength="60" autocomplete="off" value="${escapeHtml(initialUnit)}" placeholder="Ex.: un, kg, caixa">
                 </label>
                 <button type="submit">Adicionar entrada</button>
             </form>
@@ -135,7 +143,8 @@ function renderCurrentItem(shouldFocus = false) {
         ? renderItemCard(
             currentItem,
             activeViewModel.entriesByItem.get(currentItem.itemCode),
-            activeViewModel.lastUsedUnit
+            activeViewModel.lastUsedUnit,
+            activeViewModel.unitSettingsByItem.get(currentItem.itemCode)
         )
         : '<p class="area-counting-warning">Esta sessão não possui itens planejados.</p>';
     if (shouldFocus) getElement("area-counting-items").querySelector("article")?.focus();
@@ -181,8 +190,8 @@ function renderSearchResults(searchText) {
 export function renderAreaCountingView(viewModel, multipleSessionCount = 0) {
     const previousSessionId = activeViewModel?.session.id;
     const previousItemKey = getCurrentItemKey();
-    const { session, entriesByItem, progress, lastUsedUnit } = viewModel;
-    activeViewModel = { session, entriesByItem, progress, lastUsedUnit };
+    const { session, entriesByItem, unitSettingsByItem, progress, lastUsedUnit } = viewModel;
+    activeViewModel = { session, entriesByItem, unitSettingsByItem, progress, lastUsedUnit };
     const preservedIndex = previousSessionId === session.id
         ? findItemIndexByKey(session.plannedItems, previousItemKey)
         : -1;

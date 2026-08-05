@@ -14,6 +14,7 @@ const adminSections = {
     units: "admin-section-units",
     "quick-pilot": "admin-section-quick-pilot",
     templates: "admin-section-templates",
+    "item-unit-settings": "admin-section-item-unit-settings",
     "whatsapp-settings": "admin-section-whatsapp-settings",
     locations: "admin-section-locations",
     preparation: "admin-section-preparation",
@@ -55,6 +56,10 @@ export function showAdminMenu() {
 
 export function showCountTemplatesAdminSection() {
     showAdminSection("templates");
+}
+
+export function showItemUnitSettingsAdminSection() {
+    showAdminSection("item-unit-settings");
 }
 
 export function showQuickPilotAdminSection() {
@@ -1241,6 +1246,11 @@ function connectAdminNavigationEvents(handlers) {
 
             if (target === "templates") {
                 handlers.onOpenCountTemplates();
+                return;
+            }
+
+            if (target === "item-unit-settings") {
+                handlers.onOpenItemUnitSettings();
                 return;
             }
 

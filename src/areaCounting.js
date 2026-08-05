@@ -55,12 +55,13 @@ export function buildAreaCountingOverview(plan, sessions = [], entries = []) {
     };
 }
 
-export function buildAreaCountingViewModel(session, entries = []) {
+export function buildAreaCountingViewModel(session, entries = [], unitSettings = []) {
     const sessionEntries = entries.filter((entry) => entry.sessionId === session?.id);
     return {
         session,
         entries: sessionEntries,
         entriesByItem: summarizeEntriesByItem(sessionEntries),
+        unitSettingsByItem: new Map(unitSettings.map((setting) => [setting.itemCode, setting])),
         progress: summarizeSessionProgress(session, sessionEntries),
         lastUsedUnit: [...sessionEntries].reverse().find((entry) => entry.active && entry.rawUnit)?.rawUnit || ""
     };
