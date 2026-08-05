@@ -154,6 +154,15 @@
                 <strong>Foto congelada</strong>
                 <span>Os valores abaixo são os que existiam no momento do fechamento e não são recalculados.</span>
             </div>
+            <section class="snapshot-csv-export-panel" aria-labelledby="snapshot-csv-export-title">
+                <h3 id="snapshot-csv-export-title">Exportação piloto</h3>
+                <p>Os arquivos CSV usam exclusivamente esta foto salva. A planilha XLSX semelhante ao modelo original será feita em etapa posterior.</p>
+                <div class="snapshot-csv-export-actions">
+                    <button type="button" id="btn-download-snapshot-main-csv">Baixar CSV da consolidação</button>
+                    <button type="button" id="btn-download-snapshot-pending-csv">Baixar CSV de pendências</button>
+                </div>
+                <p id="snapshot-csv-export-feedback" class="snapshot-csv-export-feedback" aria-live="polite"></p>
+            </section>
             <h3 id="consolidation-snapshot-detail-title"></h3>
             <p id="consolidation-snapshot-detail-meta"></p>
             <dl id="consolidation-snapshot-summary" class="count-consolidation-summary"></dl>

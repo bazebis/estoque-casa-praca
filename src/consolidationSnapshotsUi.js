@@ -63,6 +63,12 @@ export function renderConsolidationSnapshotList(snapshots) {
         : '<div class="consolidation-snapshot-empty"><h3>Nenhum fechamento salvo</h3><p>Abra a Prévia da consolidação e use Salvar fechamento.</p></div>';
 }
 
+export function showSnapshotCsvExportFeedback(message, tone = "") {
+    const feedback = getElement("snapshot-csv-export-feedback");
+    feedback.textContent = message;
+    feedback.dataset.tone = tone;
+}
+
 function renderSummary(snapshot) {
     const stats = [
         ["Status", getStatusLabel(snapshot.status)],
@@ -184,6 +190,11 @@ export function renderConsolidationSnapshotDetail(snapshot) {
     getElement("consolidation-snapshot-pending").innerHTML = snapshot.pendingEntries.length
         ? `<ul>${snapshot.pendingEntries.map(renderPending).join("")}</ul>`
         : '<p class="count-consolidation-empty">Nenhuma pendência foi congelada neste snapshot.</p>';
+    getElement("btn-download-snapshot-pending-csv").disabled = snapshot.pendingEntries.length === 0;
+    getElement("btn-download-snapshot-pending-csv").title = snapshot.pendingEntries.length
+        ? "Baixar as pendências congeladas"
+        : "Este fechamento não possui pendências";
+    showSnapshotCsvExportFeedback("");
 }
 
 export function showConsolidationSnapshotsView() {
@@ -209,6 +220,8 @@ export function connectConsolidationSnapshotsEvents(handlers) {
     getElement("btn-open-consolidation-snapshots").addEventListener("click", handlers.onOpenList);
     getElement("btn-close-consolidation-snapshots").addEventListener("click", handlers.onClose);
     getElement("btn-back-consolidation-snapshot-list").addEventListener("click", handlers.onBackToList);
+    getElement("btn-download-snapshot-main-csv").addEventListener("click", handlers.onExportMainCsv);
+    getElement("btn-download-snapshot-pending-csv").addEventListener("click", handlers.onExportPendingCsv);
     getElement("consolidation-snapshots-list").addEventListener("click", (event) => {
         const openButton = event.target.closest("[data-open-consolidation-snapshot]");
         const deleteButton = event.target.closest("[data-delete-consolidation-snapshot]");

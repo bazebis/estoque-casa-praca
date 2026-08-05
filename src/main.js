@@ -37,8 +37,10 @@ import {
     renderConsolidationSnapshotDetail,
     renderConsolidationSnapshotList,
     showConsolidationSnapshotsFeedback,
-    showConsolidationSnapshotsView
+    showConsolidationSnapshotsView,
+    showSnapshotCsvExportFeedback
 } from "./consolidationSnapshotsUi.js";
+import { buildSnapshotCsvBundle, downloadTextFile as downloadSnapshotCsvFile } from "./snapshotCsvExport.js";
 import { buildCoverageReport } from "./countPreparation.js";
 import {
     connectCountPreparationEvents,
@@ -218,6 +220,7 @@ let selectedQuickPilotTemplateId = null;
 let selectedItemUnitTemplateId = null;
 let selectedCountConsolidationTemplateId = null;
 let activeCountConsolidationReport = null;
+let activeConsolidationSnapshotId = null;
 let activeAreaCountSessionId = null;
 let activeAreaOpenSessionCount = 0;
 let selectedLinkItemCode = null;
@@ -734,6 +737,7 @@ async function saveCurrentConsolidationSnapshot() {
 
 async function refreshConsolidationSnapshotsList() {
     const snapshots = await listConsolidationSnapshots();
+    activeConsolidationSnapshotId = null;
     renderConsolidationSnapshotList(snapshots);
     return snapshots;
 }
@@ -750,6 +754,7 @@ async function openConsolidationSnapshots() {
 }
 
 function closeConsolidationSnapshots() {
+    activeConsolidationSnapshotId = null;
     hideConsolidationSnapshotsView();
 }
 
@@ -757,10 +762,29 @@ async function openConsolidationSnapshotDetail(snapshotId) {
     try {
         const snapshot = await getConsolidationSnapshot(snapshotId);
         if (!snapshot) throw new Error("Fechamento não encontrado neste aparelho.");
+        activeConsolidationSnapshotId = snapshot.id;
         renderConsolidationSnapshotDetail(snapshot);
         showConsolidationSnapshotsFeedback("");
     } catch (error) {
         showConsolidationSnapshotsFeedback(error.message || "Não foi possível abrir o fechamento.", "error");
+    }
+}
+
+async function exportSavedSnapshotCsv(kind) {
+    try {
+        const snapshot = await getConsolidationSnapshot(activeConsolidationSnapshotId);
+        if (!snapshot) throw new Error("Abra um fechamento salvo antes de exportar.");
+        const bundle = buildSnapshotCsvBundle(snapshot);
+        if (kind === "pending" && !bundle.hasPending) {
+            showSnapshotCsvExportFeedback("Este fechamento não possui pendências.", "warning");
+            return;
+        }
+        const file = kind === "pending" ? bundle.pending : bundle.main;
+        const method = downloadSnapshotCsvFile(file.filename, file.content, file.mimeType);
+        const message = method === "new_tab" ? "CSV aberto em uma nova aba." : `Download iniciado: ${file.filename}`;
+        showSnapshotCsvExportFeedback(message, "success");
+    } catch (error) {
+        showSnapshotCsvExportFeedback(error.message || "Não foi possível gerar o CSV.", "error");
     }
 }
 
@@ -1783,7 +1807,9 @@ connectConsolidationSnapshotsEvents({
     onClose: closeConsolidationSnapshots,
     onBackToList: refreshConsolidationSnapshotsList,
     onOpenDetail: openConsolidationSnapshotDetail,
-    onDelete: deleteSavedConsolidationSnapshot
+    onDelete: deleteSavedConsolidationSnapshot,
+    onExportMainCsv: () => exportSavedSnapshotCsv("main"),
+    onExportPendingCsv: () => exportSavedSnapshotCsv("pending")
 });
 
 renderUnitOptions();
