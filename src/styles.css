@@ -388,6 +388,27 @@ textarea:focus-visible {
     font-size: 0.9rem;
 }
 
+.area-count-converted-total {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-3);
+    padding: var(--space-3);
+    background-color: #173d23;
+    border: 1px solid #2f7042;
+    border-radius: var(--radius-md);
+    color: #b8f1c5;
+}
+
+.area-count-converted-total.is-warning {
+    background-color: #59491f;
+    border-color: #88702e;
+    color: #ffe49c;
+}
+
+.area-count-converted-total span {
+    font-size: 0.88rem;
+}
+
 .area-count-entry-section h4 {
     margin: var(--space-4) 0 var(--space-2);
 }
@@ -420,6 +441,16 @@ textarea:focus-visible {
     color: var(--color-text-muted);
     font-size: 0.85rem;
     overflow-wrap: anywhere;
+}
+
+.area-count-entry .area-count-conversion-success {
+    color: #a7e3ae;
+    font-weight: 700;
+}
+
+.area-count-entry .area-count-conversion-warning {
+    color: #ffe49c;
+    font-weight: 700;
 }
 
 .area-count-entry button {

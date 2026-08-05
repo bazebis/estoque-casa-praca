@@ -1,3 +1,8 @@
+import {
+    formatConvertedQuantity,
+    formatPortionBreakdown
+} from "./unitConversion.js";
+
 function getElement(id) {
     return document.getElementById(id);
 }
@@ -54,7 +59,17 @@ export function renderAreaCountingOverview(overview) {
     getElement("pilot-area-list").innerHTML = overview.areas.map(renderAreaCard).join("");
 }
 
-function renderEntry(entry) {
+function renderEntryConversion(conversion) {
+    if (!conversion?.isConvertible) {
+        return `<span class="area-count-conversion-warning">${escapeHtml(conversion?.reason || "Conversão indisponível.")}</span>`;
+    }
+    return `<span class="area-count-conversion-success">Equivale a ${escapeHtml(formatConvertedQuantity(
+        conversion.convertedValue,
+        conversion.baseUnit
+    ))}</span>`;
+}
+
+function renderEntry(entry, conversion) {
     const unit = entry.rawUnit || "sem unidade";
     const createdAt = new Date(entry.createdAt);
     const timestamp = Number.isNaN(createdAt.getTime())
@@ -64,6 +79,7 @@ function renderEntry(entry) {
         <li class="area-count-entry">
             <div>
                 <strong>${escapeHtml(entry.rawQuantityText.trim())} ${escapeHtml(unit)}</strong>
+                ${renderEntryConversion(conversion)}
                 <span>${escapeHtml(timestamp)}</span>
                 ${entry.notes ? `<span>Observação registrada anteriormente: ${escapeHtml(entry.notes)}</span>` : ""}
             </div>
@@ -79,10 +95,32 @@ function formatSubtotal(summary) {
     return `${summary.subtotal}${unit}`;
 }
 
+function renderConvertedTotal(summary) {
+    if (!summary?.activeEntryCount) return '<p class="area-count-converted-total">Total convertido: nenhuma entrada.</p>';
+    if (!summary.totalConvertedValue) {
+        return `<p class="area-count-converted-total is-warning">Total convertido indisponível. ${summary.unconvertibleEntryCount} entrada(s) pendente(s).</p>`;
+    }
+    const total = formatConvertedQuantity(summary.totalConvertedValue, summary.baseUnit);
+    const portionBreakdown = summary.baseUnit === "porção"
+        ? formatPortionBreakdown(summary.totalConvertedValue)
+        : "";
+    const label = summary.isComplete ? "Total convertido" : "Total parcial convertido";
+    const pending = summary.unconvertibleEntryCount
+        ? `<span>${summary.unconvertibleEntryCount} entrada(s) sem conversão definida.</span>`
+        : "";
+    return `
+        <p class="area-count-converted-total ${summary.isComplete ? "" : "is-warning"}">
+            <strong>${label}: ${escapeHtml(total)}</strong>
+            ${portionBreakdown ? `<span>${escapeHtml(portionBreakdown)}</span>` : ""}
+            ${pending}
+        </p>
+    `;
+}
+
 function formatUnitHint(profile) {
     if (!profile?.baseUnit) return "";
     const review = profile.needsReview ? " · perfil marcado para revisão" : "";
-    return `<p class="area-count-unit-hint">Base: <strong>${escapeHtml(profile.baseUnit)}</strong>. Conversões serão aplicadas em etapa futura${review}.</p>`;
+    return `<p class="area-count-unit-hint">Base de conversão: <strong>${escapeHtml(profile.baseUnit)}</strong>${review}.</p>`;
 }
 
 function renderAllowedUnitOptions(profile) {
@@ -116,8 +154,11 @@ function renderUnitField(profile, lastUsedUnit) {
     `;
 }
 
-function renderItemCard(item, summary, lastUsedUnit, unitSetting) {
+function renderItemCard(item, summary, convertedSummary, lastUsedUnit, unitSetting) {
     const activeEntries = summary?.activeEntries || [];
+    const conversionsByEntry = new Map((convertedSummary?.conversions || []).map((result) => (
+        [result.entry.id, result.conversion]
+    )));
     return `
         <article class="area-count-item-card" tabindex="-1">
             <header>
@@ -125,13 +166,17 @@ function renderItemCard(item, summary, lastUsedUnit, unitSetting) {
                 <h3>${escapeHtml(item.itemNameSnapshot)}</h3>
                 <p>Código: ${escapeHtml(item.itemCode)}</p>
             </header>
-            <p class="area-count-subtotal"><strong>Subtotal:</strong> ${escapeHtml(formatSubtotal(summary))}</p>
+            <p class="area-count-subtotal"><strong>Subtotal original:</strong> ${escapeHtml(formatSubtotal(summary))}</p>
+            ${renderConvertedTotal(convertedSummary)}
             ${formatUnitHint(unitSetting)}
             ${summary?.removedEntryCount ? `<p class="area-count-removed">${summary.removedEntryCount} entrada(s) removida(s)</p>` : ""}
             <section class="area-count-entry-section" aria-label="Aferições do item atual">
                 <h4>Aferições deste item</h4>
                 ${activeEntries.length
-        ? `<ul class="area-count-entry-list">${activeEntries.map(renderEntry).join("")}</ul>`
+        ? `<ul class="area-count-entry-list">${activeEntries.map((entry) => renderEntry(
+            entry,
+            conversionsByEntry.get(entry.id)
+        )).join("")}</ul>`
         : '<p class="area-count-empty-entries">Nenhuma aferição registrada. Você pode pular este item.</p>'}
             </section>
             <form class="area-count-entry-form" data-item-code="${escapeHtml(item.itemCode)}" data-link-id="${escapeHtml(item.linkId)}">
@@ -171,6 +216,7 @@ function renderCurrentItem(shouldFocus = false) {
         ? renderItemCard(
             currentItem,
             activeViewModel.entriesByItem.get(currentItem.itemCode),
+            activeViewModel.convertedSummariesByItem.get(currentItem.itemCode),
             activeViewModel.lastUsedUnit,
             activeViewModel.unitSettingsByItem.get(currentItem.itemCode)
         )
@@ -218,8 +264,22 @@ function renderSearchResults(searchText) {
 export function renderAreaCountingView(viewModel, multipleSessionCount = 0) {
     const previousSessionId = activeViewModel?.session.id;
     const previousItemKey = getCurrentItemKey();
-    const { session, entriesByItem, unitSettingsByItem, progress, lastUsedUnit } = viewModel;
-    activeViewModel = { session, entriesByItem, unitSettingsByItem, progress, lastUsedUnit };
+    const {
+        session,
+        entriesByItem,
+        unitSettingsByItem,
+        convertedSummariesByItem,
+        progress,
+        lastUsedUnit
+    } = viewModel;
+    activeViewModel = {
+        session,
+        entriesByItem,
+        unitSettingsByItem,
+        convertedSummariesByItem,
+        progress,
+        lastUsedUnit
+    };
     const preservedIndex = previousSessionId === session.id
         ? findItemIndexByKey(session.plannedItems, previousItemKey)
         : -1;
