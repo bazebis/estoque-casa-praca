@@ -30,6 +30,15 @@ import {
     showCountConsolidationFeedback,
     showCountConsolidationView
 } from "./countConsolidationUi.js";
+import { createConsolidationSnapshotFromPreview } from "./consolidationSnapshots.js";
+import {
+    connectConsolidationSnapshotsEvents,
+    hideConsolidationSnapshotsView,
+    renderConsolidationSnapshotDetail,
+    renderConsolidationSnapshotList,
+    showConsolidationSnapshotsFeedback,
+    showConsolidationSnapshotsView
+} from "./consolidationSnapshotsUi.js";
 import { buildCoverageReport } from "./countPreparation.js";
 import {
     connectCountPreparationEvents,
@@ -95,11 +104,13 @@ import {
     clearCountingDraft,
     createLocationCountSessionDraft,
     deleteCountTemplate,
+    deleteConsolidationSnapshot,
     deleteItemUnitSetting,
     deleteItemLocationLink,
     deleteLocationNode,
     deleteLocationCountSession,
     getCountTemplate,
+    getConsolidationSnapshot,
     getItemLocationLink,
     getLocationCountSession,
     getStorageStatus,
@@ -111,6 +122,7 @@ import {
     loadCustomUnits,
     loadRelevantLocalStorageKeys,
     listCountTemplates,
+    listConsolidationSnapshots,
     listItemUnitSettings,
     listItemLocationLinks,
     listLinksByTemplate,
@@ -124,6 +136,7 @@ import {
     saveCountingHistory,
     saveCountingDraft,
     saveCountTemplate,
+    saveConsolidationSnapshot,
     saveItemUnitSetting,
     saveItemLocationLink,
     saveItemLocationLinksBatch,
@@ -204,6 +217,7 @@ let selectedLocationCountSessionLocationId = null;
 let selectedQuickPilotTemplateId = null;
 let selectedItemUnitTemplateId = null;
 let selectedCountConsolidationTemplateId = null;
+let activeCountConsolidationReport = null;
 let activeAreaCountSessionId = null;
 let activeAreaOpenSessionCount = 0;
 let selectedLinkItemCode = null;
@@ -656,6 +670,7 @@ async function loadCountConsolidationContext() {
 
 async function refreshCountConsolidationView() {
     const context = await loadCountConsolidationContext();
+    activeCountConsolidationReport = context.report;
     renderCountConsolidation(context);
     return context;
 }
@@ -673,6 +688,7 @@ async function openCountConsolidation() {
 
 function closeCountConsolidation() {
     hideCountConsolidationView();
+    activeCountConsolidationReport = null;
 }
 
 async function selectCountConsolidationTemplate(templateId) {
@@ -682,6 +698,81 @@ async function selectCountConsolidationTemplate(templateId) {
         showCountConsolidationFeedback("");
     } catch (error) {
         showCountConsolidationFeedback(error.message || "Não foi possível analisar este template.", "error");
+    }
+}
+
+function getSnapshotConfirmation(status) {
+    if (status === "complete") return "Salvar fechamento completo?";
+    if (status === "partial") return "Há pendências. Salvar mesmo assim como parcial?";
+    if (status === "empty") return "Não há lançamentos. Salvar snapshot vazio?";
+    return "Os dados são insuficientes. Salvar mesmo assim como snapshot inválido?";
+}
+
+function getSnapshotStatusLabel(status) {
+    const labels = { complete: "completo", partial: "parcial", empty: "vazio", invalid: "inválido" };
+    return labels[status] || "inválido";
+}
+
+async function saveCurrentConsolidationSnapshot() {
+    if (!activeCountConsolidationReport) {
+        showCountConsolidationFeedback("A prévia precisa ser carregada antes de salvar.", "error");
+        return;
+    }
+    const snapshot = createConsolidationSnapshotFromPreview(activeCountConsolidationReport);
+    if (!window.confirm(getSnapshotConfirmation(snapshot.status))) return;
+    try {
+        const savedSnapshot = await saveConsolidationSnapshot(snapshot);
+        const savedAt = new Date(savedSnapshot.createdAt).toLocaleString("pt-BR");
+        showCountConsolidationFeedback(
+            `Fechamento ${getSnapshotStatusLabel(savedSnapshot.status)} salvo em ${savedAt}. ID: ${savedSnapshot.id}`,
+            savedSnapshot.status === "complete" ? "success" : "warning"
+        );
+    } catch (error) {
+        showCountConsolidationFeedback(error.message || "Não foi possível salvar o fechamento.", "error");
+    }
+}
+
+async function refreshConsolidationSnapshotsList() {
+    const snapshots = await listConsolidationSnapshots();
+    renderConsolidationSnapshotList(snapshots);
+    return snapshots;
+}
+
+async function openConsolidationSnapshots() {
+    showConsolidationSnapshotsView();
+    showConsolidationSnapshotsFeedback("Carregando fechamentos…");
+    try {
+        await refreshConsolidationSnapshotsList();
+        showConsolidationSnapshotsFeedback("");
+    } catch {
+        showConsolidationSnapshotsFeedback("Não foi possível carregar os fechamentos salvos.", "error");
+    }
+}
+
+function closeConsolidationSnapshots() {
+    hideConsolidationSnapshotsView();
+}
+
+async function openConsolidationSnapshotDetail(snapshotId) {
+    try {
+        const snapshot = await getConsolidationSnapshot(snapshotId);
+        if (!snapshot) throw new Error("Fechamento não encontrado neste aparelho.");
+        renderConsolidationSnapshotDetail(snapshot);
+        showConsolidationSnapshotsFeedback("");
+    } catch (error) {
+        showConsolidationSnapshotsFeedback(error.message || "Não foi possível abrir o fechamento.", "error");
+    }
+}
+
+async function deleteSavedConsolidationSnapshot(snapshotId) {
+    try {
+        const snapshot = await getConsolidationSnapshot(snapshotId);
+        if (!snapshot || !window.confirm(`Excluir o fechamento "${snapshot.label}"?`)) return;
+        await deleteConsolidationSnapshot(snapshotId);
+        await refreshConsolidationSnapshotsList();
+        showConsolidationSnapshotsFeedback("Fechamento excluído deste aparelho.", "success");
+    } catch {
+        showConsolidationSnapshotsFeedback("Não foi possível excluir o fechamento.", "error");
     }
 }
 
@@ -1684,7 +1775,15 @@ connectAreaCountingEvents({
 connectCountConsolidationEvents({
     onOpen: openCountConsolidation,
     onClose: closeCountConsolidation,
-    onSelectTemplate: selectCountConsolidationTemplate
+    onSelectTemplate: selectCountConsolidationTemplate,
+    onSaveSnapshot: saveCurrentConsolidationSnapshot
+});
+connectConsolidationSnapshotsEvents({
+    onOpenList: openConsolidationSnapshots,
+    onClose: closeConsolidationSnapshots,
+    onBackToList: refreshConsolidationSnapshotsList,
+    onOpenDetail: openConsolidationSnapshotDetail,
+    onDelete: deleteSavedConsolidationSnapshot
 });
 
 renderUnitOptions();

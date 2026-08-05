@@ -28,6 +28,10 @@ import {
     validateLocationCountEntry
 } from "./locationCountEntries.js";
 import { normalizeWhatsappSettings, validateWhatsappSettings } from "./whatsappSettings.js";
+import {
+    normalizeConsolidationSnapshots,
+    validateConsolidationSnapshot
+} from "./consolidationSnapshots.js";
 import { normalizeCustomUnits } from "./units.js";
 import {
     bulkPut,
@@ -54,6 +58,7 @@ const locationCountSessionsStorageKey = "locationCountSessions";
 const locationCountEntriesStorageKey = "locationCountEntries";
 const whatsappSettingsStorageKey = "whatsappSettings";
 const itemUnitSettingsStorageKey = "itemUnitSettings";
+const consolidationSnapshotsStorageKey = "consolidationSnapshots";
 const migrationFlagKey = "localStorageMigrationCompleted";
 const countTemplatesMigrationFlagKey = "countTemplatesLocalStorageMigrationCompleted";
 const locationNodesMigrationFlagKey = "locationNodesLocalStorageMigrationCompleted";
@@ -287,6 +292,23 @@ function saveLocalItemUnitSettings(settings) {
     const normalizedSettings = sortItemUnitSettings(settings);
     writeJson(itemUnitSettingsStorageKey, normalizedSettings);
     return normalizedSettings;
+}
+
+function sortConsolidationSnapshots(snapshots) {
+    return normalizeConsolidationSnapshots(snapshots).sort((firstSnapshot, secondSnapshot) => (
+        new Date(secondSnapshot.createdAt) - new Date(firstSnapshot.createdAt)
+        || firstSnapshot.id.localeCompare(secondSnapshot.id, "pt-BR")
+    ));
+}
+
+function loadLocalConsolidationSnapshots() {
+    return sortConsolidationSnapshots(readJson(consolidationSnapshotsStorageKey) || []);
+}
+
+function saveLocalConsolidationSnapshots(snapshots) {
+    const normalizedSnapshots = sortConsolidationSnapshots(snapshots);
+    writeJson(consolidationSnapshotsStorageKey, normalizedSnapshots);
+    return normalizedSnapshots;
 }
 
 function sortLocationCountSessions(sessions) {
@@ -1040,6 +1062,51 @@ export async function deleteItemUnitSetting(templateId, itemCode) {
         setting.templateId === normalizedTemplateId && setting.itemCode === normalizedItemCode
     ));
     await saveItemUnitSettingsState(remainingSettings);
+}
+
+export async function listConsolidationSnapshots() {
+    return runWithFallback(async () => {
+        const storedState = await getFromStore(storeNames.appState, consolidationSnapshotsStorageKey);
+        return storedState ? sortConsolidationSnapshots(storedState.value) : loadLocalConsolidationSnapshots();
+    }, loadLocalConsolidationSnapshots);
+}
+
+export async function getConsolidationSnapshot(snapshotId) {
+    const normalizedId = String(snapshotId || "").trim();
+    if (!normalizedId) return null;
+    return (await listConsolidationSnapshots()).find((snapshot) => snapshot.id === normalizedId) || null;
+}
+
+async function saveConsolidationSnapshotsState(snapshots) {
+    const normalizedSnapshots = sortConsolidationSnapshots(snapshots);
+    await runWithFallback(
+        () => putInStore(storeNames.appState, { key: consolidationSnapshotsStorageKey, value: normalizedSnapshots }),
+        () => saveLocalConsolidationSnapshots(normalizedSnapshots)
+    );
+    saveLocalConsolidationSnapshots(normalizedSnapshots);
+    return normalizedSnapshots;
+}
+
+export async function saveConsolidationSnapshot(snapshot) {
+    const currentSnapshots = await listConsolidationSnapshots();
+    const existingSnapshot = currentSnapshots.find((item) => item.id === String(snapshot?.id || "").trim());
+    const timestamp = new Date().toISOString();
+    const validation = validateConsolidationSnapshot({
+        ...snapshot,
+        createdAt: existingSnapshot?.createdAt || snapshot?.createdAt || timestamp,
+        updatedAt: timestamp
+    });
+    if (!validation.isValid) throw new Error(validation.error || "Snapshot de consolidação inválido.");
+    const remainingSnapshots = currentSnapshots.filter((item) => item.id !== validation.snapshot.id);
+    await saveConsolidationSnapshotsState([...remainingSnapshots, validation.snapshot]);
+    return validation.snapshot;
+}
+
+export async function deleteConsolidationSnapshot(snapshotId) {
+    const normalizedId = String(snapshotId || "").trim();
+    if (!normalizedId) return;
+    const remainingSnapshots = (await listConsolidationSnapshots()).filter((snapshot) => snapshot.id !== normalizedId);
+    await saveConsolidationSnapshotsState(remainingSnapshots);
 }
 
 export async function getEffectiveUnit(templateId, itemCode) {

@@ -242,6 +242,7 @@ export function showCountConsolidationFeedback(message, tone = "") {
 export function connectCountConsolidationEvents(handlers) {
     getElement("btn-open-count-consolidation").addEventListener("click", handlers.onOpen);
     getElement("btn-close-count-consolidation").addEventListener("click", handlers.onClose);
+    getElement("btn-save-consolidation-snapshot").addEventListener("click", handlers.onSaveSnapshot);
     getElement("count-consolidation-template").addEventListener("change", (event) => handlers.onSelectTemplate(event.target.value));
     getElement("count-consolidation-filter").addEventListener("change", (event) => {
         currentFilter = event.target.value;

@@ -36,7 +36,10 @@
             <p id="pilot-area-guidance" class="pilot-area-guidance">Verificando áreas configuradas…</p>
             <div id="pilot-area-list" class="pilot-area-list"></div>
         </section>
-        <button type="button" id="btn-open-count-consolidation" class="pilot-consolidation-button">Prévia da consolidação</button>
+        <div class="pilot-operational-actions">
+            <button type="button" id="btn-open-count-consolidation" class="pilot-consolidation-button">Prévia da consolidação</button>
+            <button type="button" id="btn-open-consolidation-snapshots" class="pilot-snapshots-button">Fechamentos salvos</button>
+        </div>
         <div class="container pilot-settings-access">
             <button id="btn-config" aria-label="Abrir configurações"><span aria-hidden="true">&#9881;</span> Abrir configurações</button>
             <button id="btn-historico" class="pilot-hidden">Histórico de contagens</button>
@@ -96,6 +99,11 @@
             <dl id="count-consolidation-summary" class="count-consolidation-summary"></dl>
             <p class="count-consolidation-areas"><strong>Áreas reais:</strong> <span id="count-consolidation-area-list"></span></p>
             <div id="count-consolidation-warnings" class="count-consolidation-warnings" hidden></div>
+            <section class="count-consolidation-save-panel">
+                <strong>Prévia dinâmica</strong>
+                <p>Este resultado acompanha os dados atuais. Salve um fechamento para congelar esta foto sem finalizar as sessões.</p>
+                <button type="button" id="btn-save-consolidation-snapshot">Salvar fechamento</button>
+            </section>
             <section class="count-consolidation-session-section">
                 <h3>Sessões consideradas</h3>
                 <div id="count-consolidation-sessions"></div>
@@ -123,6 +131,46 @@
                 <div id="count-consolidation-pending-list"></div>
             </section>
         </div>
+    </section>
+
+    <section id="consolidation-snapshots-view" class="consolidation-snapshots-view" hidden aria-labelledby="consolidation-snapshots-title">
+        <div class="count-consolidation-topbar">
+            <button type="button" id="btn-close-consolidation-snapshots">Voltar para áreas</button>
+            <span class="count-consolidation-readonly">Fotos congeladas</span>
+        </div>
+        <p class="pilot-badge">Armazenamento local</p>
+        <h2 id="consolidation-snapshots-title">Fechamentos salvos</h2>
+        <p>Snapshots não mudam quando entradas, sessões ou perfis forem alterados depois.</p>
+        <p id="consolidation-snapshots-feedback" class="count-consolidation-feedback" aria-live="polite"></p>
+
+        <div id="consolidation-snapshots-list-view">
+            <p id="consolidation-snapshots-count" class="consolidation-snapshots-count"></p>
+            <div id="consolidation-snapshots-list" class="consolidation-snapshots-list"></div>
+        </div>
+
+        <article id="consolidation-snapshot-detail" class="consolidation-snapshot-detail" hidden>
+            <button type="button" id="btn-back-consolidation-snapshot-list">Voltar para fechamentos</button>
+            <div class="consolidation-snapshot-frozen-notice">
+                <strong>Foto congelada</strong>
+                <span>Os valores abaixo são os que existiam no momento do fechamento e não são recalculados.</span>
+            </div>
+            <h3 id="consolidation-snapshot-detail-title"></h3>
+            <p id="consolidation-snapshot-detail-meta"></p>
+            <dl id="consolidation-snapshot-summary" class="count-consolidation-summary"></dl>
+            <p class="count-consolidation-areas"><strong>Áreas salvas:</strong> <span id="consolidation-snapshot-areas"></span></p>
+            <section class="consolidation-snapshot-section">
+                <h3>Sessões congeladas</h3>
+                <div id="consolidation-snapshot-sessions" class="consolidation-snapshot-sessions"></div>
+            </section>
+            <section class="consolidation-snapshot-section">
+                <h3>Itens e totais salvos</h3>
+                <div id="consolidation-snapshot-items" class="consolidation-snapshot-items"></div>
+            </section>
+            <section class="consolidation-snapshot-section">
+                <h3>Pendências salvas</h3>
+                <div id="consolidation-snapshot-pending" class="consolidation-snapshot-pending"></div>
+            </section>
+        </article>
     </section>
 
     <section id="rascunho-aviso" class="draft-notice pilot-hidden" hidden></section>
