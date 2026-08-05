@@ -21,23 +21,48 @@
     <section id="storage-status" class="storage-status" hidden aria-live="polite"></section>
     <button id="btn-iniciar-contagem" class="pilot-hidden">Iniciar Contagem</button>
 
-    <main class="pilot-dashboard" aria-labelledby="pilot-dashboard-title">
+    <main id="pilot-dashboard" class="pilot-dashboard" aria-labelledby="pilot-dashboard-title">
         <p class="pilot-badge">Fase piloto</p>
         <h2 id="pilot-dashboard-title">Contagem por áreas</h2>
-        <p class="pilot-dashboard-description">O ambiente do piloto pode ser preparado nas Configurações. A contagem operacional ainda não registra quantidades.</p>
+        <p class="pilot-dashboard-description">Escolha uma área macro para registrar a contagem simples deste aparelho.</p>
         <dl class="pilot-status-summary" aria-label="Status do piloto">
             <div><dt>Template importado</dt><dd id="pilot-status-template">Verificando…</dd></div>
             <div><dt>Áreas macro configuradas</dt><dd id="pilot-status-areas">Verificando…</dd></div>
             <div><dt>Vínculos por área</dt><dd id="pilot-status-links">Verificando…</dd></div>
             <div><dt>WhatsApp de envio</dt><dd id="pilot-status-whatsapp">Verificando…</dd></div>
         </dl>
-        <button type="button" id="btn-pilot-counting-coming-soon" disabled>Contagem por área — em desenvolvimento</button>
-        <p class="pilot-next-step">Próximo passo: a contagem por área será implementada em uma etapa isolada.</p>
+        <section class="pilot-area-panel" aria-labelledby="pilot-area-title">
+            <h3 id="pilot-area-title">Áreas para contar</h3>
+            <p id="pilot-area-guidance" class="pilot-area-guidance">Verificando áreas configuradas…</p>
+            <div id="pilot-area-list" class="pilot-area-list"></div>
+        </section>
         <div class="container pilot-settings-access">
             <button id="btn-config" aria-label="Abrir configurações"><span aria-hidden="true">&#9881;</span> Abrir configurações</button>
             <button id="btn-historico" class="pilot-hidden">Histórico de contagens</button>
         </div>
     </main>
+
+    <section id="area-counting-view" class="area-counting-view" hidden aria-labelledby="area-counting-title">
+        <div class="area-counting-topbar">
+            <button type="button" id="btn-close-area-counting">Voltar para áreas</button>
+            <span id="area-counting-status" class="area-counting-status"></span>
+        </div>
+        <p class="pilot-badge">Contagem simples</p>
+        <h2 id="area-counting-title"></h2>
+        <p>Template: <strong id="area-counting-template"></strong></p>
+        <div class="area-counting-progress-block">
+            <span id="area-counting-progress-text"></span>
+            <progress id="area-counting-progress" value="0" max="1"></progress>
+        </div>
+        <p id="area-counting-session-warning" class="area-counting-warning" hidden></p>
+        <p class="area-counting-unit-notice">A unidade é texto livre. Unidades diferentes não são convertidas nem somadas.</p>
+        <label class="area-counting-search-field" for="area-counting-search">
+            Buscar item por código ou nome
+            <input type="search" id="area-counting-search" autocomplete="off" placeholder="Digite para filtrar">
+        </label>
+        <p id="area-counting-feedback" class="area-counting-feedback" aria-live="polite"></p>
+        <div id="area-counting-items" class="area-counting-items"></div>
+    </section>
 
     <section id="rascunho-aviso" class="draft-notice pilot-hidden" hidden></section>
 
@@ -354,8 +379,8 @@
                 <h3>Sessões de contagem</h3>
                 <p>Prepare uma lista congelada dos itens vinculados a um local físico.</p>
                 <div class="location-count-session-scope-notice">
-                    <strong>Esta etapa ainda não registra quantidades.</strong>
-                    <span>A contagem operacional será implementada depois.</span>
+                    <strong>Esta seção administra os rascunhos e snapshots das sessões.</strong>
+                    <span>As quantidades simples são registradas pela tela inicial, sem finalização nesta etapa.</span>
                 </div>
 
                 <label id="location-count-session-template-field" for="location-count-session-template">
@@ -446,11 +471,12 @@
                 <h3>Sobre o app</h3>
                 <ul class="about-list">
                     <li><strong>Estoque Casa da Praça</strong></li>
-                    <li>Este app está em fase de piloto para preparar a contagem por localização física.</li>
+                    <li>Este app está em fase de piloto para contagem simples por áreas macro.</li>
                     <li>Os dados ficam salvos localmente neste aparelho e navegador.</li>
                     <li>O template JSON deve ser importado manualmente em cada aparelho.</li>
                     <li>O Piloto rápido pode criar áreas macro e vínculos automaticamente; os módulos detalhados continuam disponíveis para ajustes manuais.</li>
                     <li>A configuração de WhatsApp é opcional, local e não realiza envios automáticos.</li>
+                    <li>A contagem simples por área aceita múltiplas entradas e unidades textuais, sem conversão ou consolidação final.</li>
                     <li>Ainda não existe integração com ERP ou API.</li>
                     <li>Ainda não existe sincronização de dados entre aparelhos.</li>
                     <li>Depois do primeiro carregamento ou instalação, o app pode abrir offline.</li>

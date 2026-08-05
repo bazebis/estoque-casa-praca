@@ -160,6 +160,7 @@ function renderSessionSummary(sessions) {
     const entries = [
         ["Sessões", summary.total],
         ["Rascunhos", summary.totalsByStatus.draft],
+        ["Em andamento", summary.totalsByStatus.in_progress],
         ["Canceladas", summary.totalsByStatus.canceled],
         ["Itens planejados", summary.plannedItemCount],
         ["Locais", summary.locationCount],
@@ -177,6 +178,7 @@ function createSessionMetadata(session) {
         ["Local", session.locationPathSnapshot.join(" › ")],
         ["Área", session.reportAreaSnapshot || "Sem área"],
         ["Criada", formatDateTime(session.createdAt)],
+        ["Iniciada", formatDateTime(session.startedAt)],
         ["Atualizada", formatDateTime(session.updatedAt)],
         ["Cancelada", formatDateTime(session.canceledAt)]
     ];

@@ -1,5 +1,5 @@
 const databaseName = "estoqueCasaPracaDB";
-const databaseVersion = 5;
+const databaseVersion = 6;
 
 const storeNames = {
     appState: "appState",
@@ -11,7 +11,8 @@ const storeNames = {
     countTemplates: "countTemplates",
     locationNodes: "locationNodes",
     itemLocationLinks: "itemLocationLinks",
-    locationCountSessions: "locationCountSessions"
+    locationCountSessions: "locationCountSessions",
+    locationCountEntries: "locationCountEntries"
 };
 
 const storeKeyFields = {
@@ -24,7 +25,8 @@ const storeKeyFields = {
     [storeNames.countTemplates]: "id",
     [storeNames.locationNodes]: "id",
     [storeNames.itemLocationLinks]: "id",
-    [storeNames.locationCountSessions]: "id"
+    [storeNames.locationCountSessions]: "id",
+    [storeNames.locationCountEntries]: "id"
 };
 
 let databasePromise = null;
@@ -89,6 +91,7 @@ export function openDatabase() {
             createStore(database, storeNames.locationNodes, { keyPath: "id" });
             createStore(database, storeNames.itemLocationLinks, { keyPath: "id" });
             createStore(database, storeNames.locationCountSessions, { keyPath: "id" });
+            createStore(database, storeNames.locationCountEntries, { keyPath: "id" });
         };
 
         request.onsuccess = () => resolve(request.result);

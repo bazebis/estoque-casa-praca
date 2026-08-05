@@ -3,7 +3,7 @@ import { getLocationPath, normalizeLocationNodes } from "./locationNodes.js";
 
 export const LOCATION_COUNT_SESSION_STATUSES = ["draft", "in_progress", "completed", "canceled"];
 
-const supportedStatuses = new Set(["draft", "canceled"]);
+const supportedStatuses = new Set(["draft", "in_progress", "canceled"]);
 
 function normalizeText(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ");
@@ -201,8 +201,13 @@ function collectCountAndDateErrors(candidate) {
         || candidate.activeLinkCountSnapshot !== plannedItemCount) {
         errors.push("A quantidade de vínculos ativos não corresponde aos snapshots.");
     }
-    if (candidate?.startedAt || candidate?.finishedAt) {
-        errors.push("Esta etapa ainda não permite iniciar ou finalizar uma sessão.");
+    if (candidate?.finishedAt) errors.push("Esta etapa ainda não permite finalizar uma sessão.");
+    if (candidate?.status === "draft" && candidate.startedAt) errors.push("Um rascunho não pode ter data de início.");
+    if (candidate?.status === "in_progress" && !candidate.startedAt) {
+        errors.push("Uma sessão em andamento precisa da data de início.");
+    }
+    if (candidate?.status === "in_progress" && candidate.canceledAt) {
+        errors.push("Uma sessão em andamento não pode ter data de cancelamento.");
     }
     if (candidate?.status === "draft" && candidate.canceledAt) errors.push("Um rascunho não pode ter data de cancelamento.");
     if (candidate?.status === "canceled" && !candidate.canceledAt) errors.push("Uma sessão cancelada precisa da data de cancelamento.");

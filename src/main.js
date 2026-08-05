@@ -1,5 +1,18 @@
 import "./styles.css";
 import {
+    buildAreaCountingOverview,
+    buildAreaCountingViewModel,
+    listOpenAreaSessions
+} from "./areaCounting.js";
+import {
+    connectAreaCountingEvents,
+    hideAreaCountingView,
+    renderAreaCountingOverview,
+    renderAreaCountingView,
+    showAreaCountingFeedback,
+    showAreaCountingView
+} from "./areaCountingUi.js";
+import {
     buildBackupPayload,
     downloadBackup,
     mergeCountingHistory,
@@ -69,6 +82,7 @@ import {
     deleteLocationCountSession,
     getCountTemplate,
     getItemLocationLink,
+    getLocationCountSession,
     getStorageStatus,
     initializeStorage,
     loadCatalog,
@@ -82,6 +96,7 @@ import {
     listLinksByTemplate,
     listLocationNodes,
     listLocationCountSessions,
+    listLocationCountEntries,
     loadWhatsappSettings,
     saveBackupBeforeJsonImport,
     saveCatalogBackupBeforeImport,
@@ -91,10 +106,14 @@ import {
     saveCountTemplate,
     saveItemLocationLink,
     saveItemLocationLinksBatch,
+    saveLocationCountSession,
     saveLocationNode,
     saveCustomUnits,
     saveWhatsappSettings,
-    clearWhatsappSettings
+    clearWhatsappSettings,
+    addLocationCountEntry,
+    removeLocationCountEntry,
+    startLocationCountSession
 } from "./storage.js";
 import {
     createCustomUnit,
@@ -161,6 +180,8 @@ let selectedLocationItemMapTemplateId = null;
 let selectedLocationCountSessionTemplateId = null;
 let selectedLocationCountSessionLocationId = null;
 let selectedQuickPilotTemplateId = null;
+let activeAreaCountSessionId = null;
+let activeAreaOpenSessionCount = 0;
 let selectedLinkItemCode = null;
 let itemLinksLocationFilter = "";
 let itemLinksItemFilter = "";
@@ -567,17 +588,102 @@ async function loadQuickPilotContext() {
 
 async function refreshPilotDashboard() {
     try {
-        const [{ plan }, whatsappSettings] = await Promise.all([
+        const [{ plan }, whatsappSettings, sessions, entries] = await Promise.all([
             loadQuickPilotContext(),
-            loadWhatsappSettings()
+            loadWhatsappSettings(),
+            listLocationCountSessions(),
+            listLocationCountEntries()
         ]);
         renderPilotDashboardStatus(
             summarizeQuickPilotStatus(plan),
             isWhatsappConfigured(whatsappSettings)
         );
+        renderAreaCountingOverview(buildAreaCountingOverview(plan, sessions, entries));
     } catch {
         renderPilotDashboardStatus(summarizeQuickPilotStatus(null), false);
+        renderAreaCountingOverview(buildAreaCountingOverview(null));
     }
+}
+
+async function refreshAreaCountingView() {
+    const [session, entries] = await Promise.all([
+        getLocationCountSession(activeAreaCountSessionId),
+        listLocationCountEntries()
+    ]);
+    if (!session) throw new Error("A sessão de contagem não foi encontrada.");
+    renderAreaCountingView(buildAreaCountingViewModel(session, entries), activeAreaOpenSessionCount);
+    return session;
+}
+
+async function openAreaCounting(locationId) {
+    try {
+        const [{ plan }, sessions] = await Promise.all([loadQuickPilotContext(), listLocationCountSessions()]);
+        const area = plan?.areas.find((item) => (
+            item.locationPlan.location.id === locationId && item.locationPlan.action === "reuse"
+        ));
+        if (!area) throw new Error("Esta área não está pronta para contar.");
+        const openSessions = listOpenAreaSessions(sessions, plan.templateId, locationId);
+        if (openSessions.length === 0 && area.activeExistingLinkCount === 0) {
+            throw new Error("Esta área não possui itens vinculados ativos para criar uma sessão.");
+        }
+        const session = openSessions[0] || await createLocationCountSessionDraft({
+            templateId: plan.templateId,
+            locationId,
+            notes: "Criada pela contagem simples por área."
+        });
+
+        activeAreaCountSessionId = session.id;
+        activeAreaOpenSessionCount = Math.max(openSessions.length, 1);
+        await refreshAreaCountingView();
+        showAreaCountingFeedback(openSessions.length ? "Sessão aberta novamente." : "Rascunho criado para esta área.", "success");
+        showAreaCountingView();
+        await refreshPilotDashboard();
+    } catch (error) {
+        window.alert(error.message || "Não foi possível abrir a contagem desta área.");
+    }
+}
+
+async function addAreaCountEntry(values) {
+    try {
+        let session = await getLocationCountSession(activeAreaCountSessionId);
+        const plannedItem = session?.plannedItems.find((item) => (
+            item.itemCode === values.itemCode && item.linkId === values.linkId
+        ));
+        if (!session || !plannedItem) throw new Error("Item planejado não encontrado nesta sessão.");
+
+        await addLocationCountEntry({ session, plannedItem, ...values });
+        session = session.status === "draft"
+            ? await startLocationCountSession(session.id)
+            : await saveLocationCountSession(session);
+        await refreshAreaCountingView();
+        await refreshPilotDashboard();
+        showAreaCountingFeedback(
+            values.rawUnit.trim() ? "Entrada adicionada." : "Entrada adicionada sem unidade; confira antes de uma exportação futura.",
+            values.rawUnit.trim() ? "success" : "warning"
+        );
+    } catch (error) {
+        showAreaCountingFeedback(error.message || "Não foi possível adicionar a entrada.", "error");
+    }
+}
+
+async function removeAreaCountEntry(entryId) {
+    try {
+        const removedEntry = await removeLocationCountEntry(entryId);
+        const session = await getLocationCountSession(removedEntry.sessionId);
+        if (session?.status === "in_progress") await saveLocationCountSession(session);
+        await refreshAreaCountingView();
+        await refreshPilotDashboard();
+        showAreaCountingFeedback("Entrada removida. O registro foi preservado como inativo.", "success");
+    } catch (error) {
+        showAreaCountingFeedback(error.message || "Não foi possível remover a entrada.", "error");
+    }
+}
+
+async function closeAreaCounting() {
+    activeAreaCountSessionId = null;
+    activeAreaOpenSessionCount = 0;
+    hideAreaCountingView();
+    await refreshPilotDashboard();
 }
 
 async function refreshQuickPilotView() {
@@ -1126,6 +1232,7 @@ async function createLocationCountDraft(notes) {
             notes
         });
         await refreshLocationCountSessionsView();
+        await refreshPilotDashboard();
         showLocationCountSessionsFeedback("Sessão criada em rascunho.", "success");
         return true;
     } catch (error) {
@@ -1143,6 +1250,7 @@ async function cancelLocationCountDraft(sessionId) {
 
         await cancelLocationCountSession(sessionId);
         await refreshLocationCountSessionsView();
+        await refreshPilotDashboard();
         showLocationCountSessionsFeedback("Sessão cancelada.", "success");
     } catch (error) {
         showLocationCountSessionsFeedback(error.message || "Não foi possível cancelar a sessão.", "error");
@@ -1157,9 +1265,10 @@ async function removeLocationCountSession(sessionId) {
 
         await deleteLocationCountSession(sessionId);
         await refreshLocationCountSessionsView();
+        await refreshPilotDashboard();
         showLocationCountSessionsFeedback("Sessão removida.", "success");
-    } catch {
-        showLocationCountSessionsFeedback("Não foi possível remover a sessão.", "error");
+    } catch (error) {
+        showLocationCountSessionsFeedback(error.message || "Não foi possível remover a sessão.", "error");
     }
 }
 
@@ -1391,6 +1500,12 @@ connectQuickPilotEvents({
 connectWhatsappSettingsEvents({
     onSave: updateWhatsappSettings,
     onClear: removeWhatsappSettings
+});
+connectAreaCountingEvents({
+    onOpenArea: openAreaCounting,
+    onCloseArea: closeAreaCounting,
+    onAddEntry: addAreaCountEntry,
+    onRemoveEntry: removeAreaCountEntry
 });
 
 renderUnitOptions();

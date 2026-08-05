@@ -16,6 +16,11 @@ import {
     normalizeLocationCountSessions,
     validateLocationCountSession
 } from "./locationCountSessions.js";
+import {
+    createLocationCountEntryModel,
+    normalizeLocationCountEntries,
+    validateLocationCountEntry
+} from "./locationCountEntries.js";
 import { normalizeWhatsappSettings, validateWhatsappSettings } from "./whatsappSettings.js";
 import { normalizeCustomUnits } from "./units.js";
 import {
@@ -40,12 +45,14 @@ const countTemplatesStorageKey = "countTemplates";
 const locationNodesStorageKey = "locationNodes";
 const itemLocationLinksStorageKey = "itemLocationLinks";
 const locationCountSessionsStorageKey = "locationCountSessions";
+const locationCountEntriesStorageKey = "locationCountEntries";
 const whatsappSettingsStorageKey = "whatsappSettings";
 const migrationFlagKey = "localStorageMigrationCompleted";
 const countTemplatesMigrationFlagKey = "countTemplatesLocalStorageMigrationCompleted";
 const locationNodesMigrationFlagKey = "locationNodesLocalStorageMigrationCompleted";
 const itemLocationLinksMigrationFlagKey = "itemLocationLinksLocalStorageMigrationCompleted";
 const locationCountSessionsMigrationFlagKey = "locationCountSessionsLocalStorageMigrationCompleted";
+const locationCountEntriesMigrationFlagKey = "locationCountEntriesLocalStorageMigrationCompleted";
 const catalogInitializedKey = "catalogInitialized";
 const currentDraftKey = "current";
 
@@ -281,6 +288,24 @@ function deleteLocalLocationCountSession(sessionId) {
     writeJson(locationCountSessionsStorageKey, sessions);
 }
 
+function sortLocationCountEntries(entries) {
+    return normalizeLocationCountEntries(entries).sort((firstEntry, secondEntry) => (
+        new Date(firstEntry.createdAt) - new Date(secondEntry.createdAt)
+        || firstEntry.id.localeCompare(secondEntry.id, "pt-BR")
+    ));
+}
+
+function loadLocalLocationCountEntries() {
+    const entries = readJson(locationCountEntriesStorageKey);
+    return sortLocationCountEntries(Array.isArray(entries) ? entries : []);
+}
+
+function saveLocalLocationCountEntry(entry) {
+    const entries = loadLocalLocationCountEntries().filter((item) => item.id !== entry.id);
+    writeJson(locationCountEntriesStorageKey, sortLocationCountEntries([...entries, entry]));
+    return entry;
+}
+
 function saveLocalCatalogBackupBeforeImport(items) {
     const backup = {
         createdAt: new Date().toISOString(),
@@ -453,6 +478,20 @@ async function migrateLocationCountSessionsToIndexedDB() {
     return localSessions.length > 0;
 }
 
+async function migrateLocationCountEntriesToIndexedDB() {
+    const migrationState = await getFromStore(storeNames.appState, locationCountEntriesMigrationFlagKey);
+    if (migrationState?.value === true) return false;
+    const localEntries = loadLocalLocationCountEntries();
+
+    if (localEntries.length > 0) await bulkPut(storeNames.locationCountEntries, localEntries);
+    await putInStore(storeNames.appState, {
+        key: locationCountEntriesMigrationFlagKey,
+        value: true,
+        completedAt: new Date().toISOString()
+    });
+    return localEntries.length > 0;
+}
+
 async function runWithFallback(dbOperation, fallbackOperation) {
     if (!shouldUseIndexedDB) {
         return fallbackOperation();
@@ -488,6 +527,7 @@ export async function initializeStorage() {
         const wereLocationNodesMigrated = await migrateLocationNodesToIndexedDB();
         const wereItemLocationLinksMigrated = await migrateItemLocationLinksToIndexedDB();
         const wereLocationCountSessionsMigrated = await migrateLocationCountSessionsToIndexedDB();
+        const wereLocationCountEntriesMigrated = await migrateLocationCountEntriesToIndexedDB();
         isStorageInitialized = true;
         return {
             ...getStorageStatus(),
@@ -496,6 +536,7 @@ export async function initializeStorage() {
                 || wereLocationNodesMigrated
                 || wereItemLocationLinksMigrated
                 || wereLocationCountSessionsMigrated
+                || wereLocationCountEntriesMigrated
         };
     } catch (error) {
         shouldUseIndexedDB = false;
@@ -966,8 +1007,12 @@ function validateSessionTransition(existingSession, nextSession) {
         throw new Error("Uma sessão cancelada não pode voltar para rascunho.");
     }
 
-    if (existingSession?.status === "draft" && !["draft", "canceled"].includes(nextSession.status)) {
-        throw new Error("Nesta etapa, o rascunho só pode permanecer aberto ou ser cancelado.");
+    if (existingSession?.status === "draft" && !["draft", "in_progress", "canceled"].includes(nextSession.status)) {
+        throw new Error("O rascunho só pode ser iniciado ou cancelado nesta etapa.");
+    }
+
+    if (existingSession?.status === "in_progress" && nextSession.status !== "in_progress") {
+        throw new Error("Uma sessão em andamento ainda não pode ser finalizada ou cancelada.");
     }
 }
 
@@ -1033,6 +1078,19 @@ export async function createLocationCountSessionDraft({ templateId, locationId, 
     return saveLocationCountSession(draft);
 }
 
+export async function startLocationCountSession(sessionId) {
+    const session = await getLocationCountSession(sessionId);
+    if (!session) throw new Error("Sessão de contagem não encontrada.");
+    if (session.status === "in_progress") return session;
+    if (session.status !== "draft") throw new Error("Somente um rascunho pode ser iniciado.");
+
+    return saveLocationCountSession({
+        ...session,
+        status: "in_progress",
+        startedAt: new Date().toISOString()
+    });
+}
+
 export async function cancelLocationCountSession(sessionId) {
     const session = await getLocationCountSession(sessionId);
 
@@ -1053,9 +1111,116 @@ export async function deleteLocationCountSession(sessionId) {
         return;
     }
 
+    const relatedEntries = await listEntriesBySession(normalizedId);
+    if (relatedEntries.length > 0) {
+        throw new Error("Não é possível remover uma sessão que já possui entradas de contagem.");
+    }
+
     await runWithFallback(
         () => deleteFromStore(storeNames.locationCountSessions, normalizedId),
         () => deleteLocalLocationCountSession(normalizedId)
     );
     deleteLocalLocationCountSession(normalizedId);
+}
+
+export async function listLocationCountEntries() {
+    return runWithFallback(
+        async () => sortLocationCountEntries(await getAllFromStore(storeNames.locationCountEntries)),
+        loadLocalLocationCountEntries
+    );
+}
+
+export async function listEntriesBySession(sessionId) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    return (await listLocationCountEntries()).filter((entry) => entry.sessionId === normalizedSessionId);
+}
+
+export async function listEntriesByItem(sessionId, itemCode) {
+    const normalizedItemCode = String(itemCode || "").trim();
+    return (await listEntriesBySession(sessionId)).filter((entry) => entry.itemCode === normalizedItemCode);
+}
+
+function preserveEntrySnapshots(existingEntry, candidate) {
+    if (!existingEntry) return candidate;
+    const snapshotFields = [
+        "id", "sessionId", "templateId", "locationId", "linkId", "itemCode",
+        "itemNameSnapshot", "groupId", "groupNameSnapshot", "reportAreaSnapshot", "createdAt"
+    ];
+    const preservedEntry = { ...candidate };
+    snapshotFields.forEach((field) => { preservedEntry[field] = existingEntry[field]; });
+    return preservedEntry;
+}
+
+function validateEntrySource(entry, session) {
+    if (!session) throw new Error("A sessão da entrada não existe neste dispositivo.");
+    if (!["draft", "in_progress"].includes(session.status)) {
+        throw new Error("A sessão não está aberta para registrar entradas.");
+    }
+    const plannedItem = session.plannedItems.find((item) => (
+        item.itemCode === entry.itemCode && item.linkId === entry.linkId
+    ));
+    if (!plannedItem) throw new Error("O item não faz parte da sessão planejada.");
+    if (entry.templateId !== session.templateId || entry.locationId !== session.locationId) {
+        throw new Error("A entrada não corresponde ao template e local da sessão.");
+    }
+    if (entry.itemNameSnapshot !== plannedItem.itemNameSnapshot
+        || entry.groupId !== plannedItem.groupId
+        || entry.groupNameSnapshot !== plannedItem.groupNameSnapshot
+        || entry.reportAreaSnapshot !== session.reportAreaSnapshot) {
+        throw new Error("Os snapshots da entrada não correspondem à sessão planejada.");
+    }
+}
+
+export async function saveLocationCountEntry(entry) {
+    const [entries, session] = await Promise.all([
+        listLocationCountEntries(),
+        getLocationCountSession(entry?.sessionId)
+    ]);
+    const existingEntry = entries.find((item) => item.id === String(entry?.id || "").trim());
+    const timestamp = new Date().toISOString();
+    const candidate = preserveEntrySnapshots(existingEntry, {
+        ...entry,
+        createdAt: existingEntry?.createdAt || entry?.createdAt || timestamp,
+        updatedAt: timestamp
+    });
+    const validation = validateLocationCountEntry(candidate);
+
+    if (!validation.isValid) throw new Error(validation.error || "Entrada de contagem inválida.");
+    validateEntrySource(validation.entry, session);
+    await runWithFallback(
+        () => putInStore(storeNames.locationCountEntries, validation.entry),
+        () => saveLocalLocationCountEntry(validation.entry)
+    );
+    saveLocalLocationCountEntry(validation.entry);
+    return validation.entry;
+}
+
+export async function addLocationCountEntry({ session, plannedItem, rawQuantityText, rawUnit = "", notes = "" }) {
+    const storedSession = await getLocationCountSession(session?.id);
+    if (!storedSession) throw new Error("Sessão de contagem não encontrada.");
+    const storedItem = storedSession.plannedItems.find((item) => (
+        item.itemCode === plannedItem?.itemCode && item.linkId === plannedItem?.linkId
+    ));
+    if (!storedItem) throw new Error("O item selecionado não faz parte desta sessão.");
+    const entry = createLocationCountEntryModel({
+        session: storedSession,
+        plannedItem: storedItem,
+        rawQuantityText,
+        rawUnit,
+        notes
+    });
+    return saveLocationCountEntry(entry);
+}
+
+export async function removeLocationCountEntry(entryId) {
+    const normalizedId = String(entryId || "").trim();
+    const entry = (await listLocationCountEntries()).find((item) => item.id === normalizedId);
+    if (!entry) throw new Error("Entrada de contagem não encontrada.");
+    if (!entry.active) return entry;
+
+    return saveLocationCountEntry({
+        ...entry,
+        active: false,
+        removedAt: new Date().toISOString()
+    });
 }

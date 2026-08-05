@@ -120,6 +120,10 @@ textarea:focus-visible {
     text-align: left;
 }
 
+.pilot-dashboard[hidden] {
+    display: none;
+}
+
 .pilot-badge {
     display: inline-block;
     margin-bottom: var(--space-2);
@@ -175,6 +179,236 @@ textarea:focus-visible {
 
 .pilot-settings-access {
     padding: var(--space-4) 0 0;
+}
+
+.pilot-area-panel {
+    margin-top: var(--space-5);
+}
+
+.pilot-area-panel h3 {
+    margin: 0 0 var(--space-2);
+}
+
+.pilot-area-guidance {
+    color: var(--color-text-muted);
+}
+
+.pilot-area-list {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+}
+
+.pilot-area-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-1) var(--space-3);
+    min-height: 92px;
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    text-align: left;
+}
+
+.pilot-area-card strong {
+    font-size: 1.08rem;
+    overflow-wrap: anywhere;
+}
+
+.pilot-area-card span {
+    color: var(--color-text-muted);
+    font-size: 0.88rem;
+}
+
+.pilot-area-status {
+    grid-row: 1;
+    grid-column: 2;
+    align-self: start;
+    color: #a7e3ae !important;
+    font-weight: 700;
+}
+
+.pilot-area-warning {
+    grid-column: 1 / -1;
+    color: #ffe49c !important;
+}
+
+/* simple area counting */
+.area-counting-view {
+    width: 100%;
+    max-width: var(--max-content-width);
+    margin: 0 auto;
+    text-align: left;
+}
+
+.area-counting-view[hidden] {
+    display: none;
+}
+
+.area-counting-topbar {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-4);
+}
+
+.area-counting-topbar button {
+    width: auto;
+    min-height: 44px;
+}
+
+.area-counting-status {
+    padding: var(--space-1) var(--space-2);
+    background-color: #59491f;
+    border-radius: var(--radius-sm);
+    color: #ffe49c;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.area-counting-view h2 {
+    margin: var(--space-2) 0;
+    font-size: clamp(1.7rem, 7vw, 2.3rem);
+}
+
+.area-counting-progress-block {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-4) 0;
+}
+
+.area-counting-progress-block progress {
+    width: 100%;
+    height: 18px;
+}
+
+.area-counting-warning,
+.area-counting-unit-notice {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    background-color: #59491f;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: #ffe49c;
+}
+
+.area-counting-search-field {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-4) 0;
+    font-weight: 700;
+}
+
+.area-counting-search-field input {
+    width: 100%;
+    min-height: 48px;
+    padding: 12px;
+}
+
+.area-counting-feedback {
+    min-height: 1.5em;
+    margin: var(--space-3) 0;
+}
+
+.area-counting-feedback[data-tone="success"] {
+    color: #a7e3ae;
+}
+
+.area-counting-feedback[data-tone="error"] {
+    color: #ffb3b3;
+}
+
+.area-counting-feedback[data-tone="warning"] {
+    color: #ffe49c;
+}
+
+.area-counting-items {
+    display: grid;
+    gap: var(--space-4);
+}
+
+.area-count-item-card {
+    padding: var(--space-4);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+}
+
+.area-count-item-card[hidden] {
+    display: none;
+}
+
+.area-count-item-card header span,
+.area-count-item-card header p,
+.area-count-removed {
+    color: var(--color-text-muted);
+    font-size: 0.88rem;
+}
+
+.area-count-item-card h3 {
+    margin: var(--space-1) 0;
+    overflow-wrap: anywhere;
+}
+
+.area-count-subtotal {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    background-color: var(--color-surface-raised);
+    border-radius: var(--radius-md);
+}
+
+.area-count-entry-list {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+    padding: 0;
+    list-style: none;
+}
+
+.area-count-entry {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-2);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+}
+
+.area-count-entry span {
+    display: block;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+}
+
+.area-count-entry button {
+    width: auto;
+    min-height: 40px;
+    padding: 8px var(--space-3);
+    background-color: var(--color-danger);
+}
+
+.area-count-entry-form {
+    display: grid;
+    gap: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-border);
+}
+
+.area-count-entry-form label {
+    display: grid;
+    gap: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+.area-count-entry-form input {
+    width: 100%;
+    min-height: 48px;
+    padding: 12px;
 }
 
 .pilot-module-list {
