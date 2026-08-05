@@ -44,6 +44,7 @@ import {
     showItemLocationLinksFeedback
 } from "./itemLocationLinksUi.js";
 import {
+    applyManualItemUnitProfile,
     resolveItemUnitSettings,
     summarizeItemUnitSettings
 } from "./itemUnitSettings.js";
@@ -817,39 +818,38 @@ async function analyzeItemUnits() {
     try {
         const context = await refreshItemUnitSettingsView();
         showItemUnitSettingsFeedback(
-            `${context.summary.effectiveUnitCount} de ${context.summary.itemCount} item(ns) possuem unidade efetiva.`,
-            context.summary.withoutUnitCount ? "warning" : "success"
+            `${context.summary.completeProfileCount} de ${context.summary.itemCount} item(ns) possuem perfil completo.`,
+            context.summary.withoutProfileCount || context.summary.needsReviewCount ? "warning" : "success"
         );
     } catch {
         showItemUnitSettingsFeedback("Não foi possível atualizar as sugestões.", "error");
     }
 }
 
-async function saveManualItemUnit(itemCode, manualUnit) {
-    const normalizedManualUnit = String(manualUnit || "").trim();
-    if (!normalizedManualUnit) {
-        showItemUnitSettingsFeedback("Informe uma unidade ou use Limpar manual.", "warning");
+async function saveManualItemUnit(itemCode, overrides) {
+    if (!String(overrides.baseUnit || "").trim() || !overrides.defaultInputUnit) {
+        showItemUnitSettingsFeedback("Informe a unidade base e a unidade padrão.", "warning");
         return;
     }
 
     try {
         const context = await loadItemUnitSettingsContext();
-        const setting = context.settings.find((item) => item.itemCode === itemCode);
-        if (!setting) throw new Error("Item não encontrado no template selecionado.");
-        await saveItemUnitSetting({ ...setting, manualUnit: normalizedManualUnit });
+        const profile = context.settings.find((item) => item.itemCode === itemCode);
+        if (!profile) throw new Error("Item não encontrado no template selecionado.");
+        await saveItemUnitSetting(applyManualItemUnitProfile(profile, overrides));
         await refreshItemUnitSettingsView();
-        showItemUnitSettingsFeedback("Unidade manual salva neste aparelho.", "success");
+        showItemUnitSettingsFeedback("Perfil manual salvo neste aparelho.", "success");
     } catch (error) {
         showItemUnitSettingsFeedback(error.message || "Não foi possível salvar a unidade.", "error");
     }
 }
 
 async function clearManualItemUnit(itemCode) {
-    if (!window.confirm("Limpar a unidade manual deste item e voltar à sugestão automática?")) return;
+    if (!window.confirm("Limpar a configuração manual deste item e voltar ao perfil automático?")) return;
     try {
         await deleteItemUnitSetting(selectedItemUnitTemplateId, itemCode);
         await refreshItemUnitSettingsView();
-        showItemUnitSettingsFeedback("Unidade manual removida; a sugestão automática voltou a valer.", "success");
+        showItemUnitSettingsFeedback("Configuração removida; o perfil automático voltou a valer.", "success");
     } catch {
         showItemUnitSettingsFeedback("Não foi possível limpar a unidade manual.", "error");
     }

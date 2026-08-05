@@ -1,3 +1,5 @@
+import { normalizeUnitAlias } from "./itemUnitSettings.js";
+
 function normalizeText(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ");
 }
@@ -41,7 +43,7 @@ export function parseQuantityText(text) {
 }
 
 export function normalizeUnit(unit) {
-    return normalizeText(unit).toLocaleLowerCase("pt-BR");
+    return normalizeUnitAlias(unit);
 }
 
 export function normalizeLocationCountEntry(entry, timestamp = new Date().toISOString()) {

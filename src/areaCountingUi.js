@@ -79,15 +79,45 @@ function formatSubtotal(summary) {
     return `${summary.subtotal}${unit}`;
 }
 
-function formatUnitHint(setting) {
-    if (!setting?.effectiveUnit) return "";
-    const label = setting.manualUnit ? "Unidade padrão manual" : "Unidade sugerida";
-    return `<p class="area-count-unit-hint">${label}: <strong>${escapeHtml(setting.effectiveUnit)}</strong></p>`;
+function formatUnitHint(profile) {
+    if (!profile?.baseUnit) return "";
+    const review = profile.needsReview ? " · perfil marcado para revisão" : "";
+    return `<p class="area-count-unit-hint">Base: <strong>${escapeHtml(profile.baseUnit)}</strong>. Conversões serão aplicadas em etapa futura${review}.</p>`;
+}
+
+function renderAllowedUnitOptions(profile) {
+    return profile.allowedUnits.map((unit) => {
+        const review = unit.requiresReview ? " (revisar)" : "";
+        const selected = unit.label === profile.defaultInputUnit ? "selected" : "";
+        return `<option value="${escapeHtml(unit.label)}" ${selected}>${escapeHtml(unit.label)}${review}</option>`;
+    }).join("");
+}
+
+function renderUnitField(profile, lastUsedUnit) {
+    if (!profile?.allowedUnits.length) {
+        const initialUnit = profile?.effectiveUnit || lastUsedUnit;
+        return `
+            <label>Unidade livre
+                <input type="text" name="unit" maxlength="60" autocomplete="off" value="${escapeHtml(initialUnit)}" placeholder="Ex.: un, kg, caixa">
+            </label>
+        `;
+    }
+    return `
+        <label>Unidade permitida
+            <select name="unit" data-profile-unit-select>
+                ${renderAllowedUnitOptions(profile)}
+                <option value="__other__">Outra unidade</option>
+            </select>
+        </label>
+        <label data-custom-unit-field hidden>Outra unidade
+            <input type="text" name="customUnit" maxlength="60" autocomplete="off" placeholder="Digite a unidade">
+        </label>
+        <p class="area-count-other-unit-warning" data-custom-unit-warning hidden>Unidade fora do perfil; revise esta entrada futuramente.</p>
+    `;
 }
 
 function renderItemCard(item, summary, lastUsedUnit, unitSetting) {
     const activeEntries = summary?.activeEntries || [];
-    const initialUnit = unitSetting?.effectiveUnit || lastUsedUnit;
     return `
         <article class="area-count-item-card" tabindex="-1">
             <header>
@@ -108,9 +138,7 @@ function renderItemCard(item, summary, lastUsedUnit, unitSetting) {
                 <label>Quantidade
                     <input type="text" name="quantity" inputmode="decimal" required maxlength="80" autocomplete="off" placeholder="Ex.: 1,5">
                 </label>
-                <label>Unidade livre
-                    <input type="text" name="unit" maxlength="60" autocomplete="off" value="${escapeHtml(initialUnit)}" placeholder="Ex.: un, kg, caixa">
-                </label>
+                ${renderUnitField(unitSetting, lastUsedUnit)}
                 <button type="submit">Adicionar entrada</button>
             </form>
         </article>
@@ -240,13 +268,26 @@ function goToItem(itemIndex) {
 }
 
 function getEntryFormValues(form) {
+    const selectedUnit = form.elements.unit.value;
+    const rawUnit = selectedUnit === "__other__" ? form.elements.customUnit.value : selectedUnit;
     return {
         itemCode: form.dataset.itemCode,
         linkId: form.dataset.linkId,
         rawQuantityText: form.elements.quantity.value,
-        rawUnit: form.elements.unit.value,
+        rawUnit,
         notes: ""
     };
+}
+
+function toggleCustomUnitField(select) {
+    const form = select.closest("form");
+    const shouldShowCustomUnit = select.value === "__other__";
+    const customField = form.querySelector("[data-custom-unit-field]");
+    const customInput = form.elements.customUnit;
+    customField.hidden = !shouldShowCustomUnit;
+    form.querySelector("[data-custom-unit-warning]").hidden = !shouldShowCustomUnit;
+    customInput.required = shouldShowCustomUnit;
+    if (shouldShowCustomUnit) customInput.focus();
 }
 
 export function connectAreaCountingEvents(handlers) {
@@ -267,6 +308,10 @@ export function connectAreaCountingEvents(handlers) {
         if (!form) return;
         event.preventDefault();
         await handlers.onAddEntry(getEntryFormValues(form));
+    });
+    getElement("area-counting-items").addEventListener("change", (event) => {
+        const select = event.target.closest("[data-profile-unit-select]");
+        if (select) toggleCustomUnitField(select);
     });
     getElement("area-counting-items").addEventListener("click", async (event) => {
         const button = event.target.closest("[data-remove-area-entry]");

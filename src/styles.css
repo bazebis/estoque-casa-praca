@@ -443,10 +443,17 @@ textarea:focus-visible {
     font-size: 0.9rem;
 }
 
-.area-count-entry-form input {
+.area-count-entry-form input,
+.area-count-entry-form select {
     width: 100%;
     min-height: 48px;
     padding: 12px;
+}
+
+.area-count-other-unit-warning {
+    margin: 0;
+    color: #ffe49c;
+    font-size: 0.88rem;
 }
 
 .area-counting-search-panel {
@@ -599,6 +606,31 @@ textarea:focus-visible {
     margin: var(--space-3) 0;
 }
 
+.item-unit-card h5 {
+    margin: var(--space-3) 0 var(--space-2);
+}
+
+.item-unit-allowed-list {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    list-style: none;
+}
+
+.item-unit-allowed-list li {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    background-color: var(--color-surface-raised);
+    border-radius: var(--radius-md);
+}
+
+.item-unit-allowed-list span {
+    color: var(--color-text-muted);
+    font-size: 0.82rem;
+}
+
 .item-unit-form,
 .item-unit-form label {
     display: grid;
@@ -610,10 +642,21 @@ textarea:focus-visible {
     font-size: 0.9rem;
 }
 
-.item-unit-form input {
+.item-unit-form input,
+.item-unit-form select {
     width: 100%;
     min-height: 46px;
     padding: 10px;
+}
+
+.item-unit-review-field {
+    grid-template-columns: auto 1fr;
+    align-items: center;
+}
+
+.item-unit-review-field input {
+    width: 20px;
+    min-height: 20px;
 }
 
 .item-unit-actions {

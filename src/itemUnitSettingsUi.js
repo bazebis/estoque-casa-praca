@@ -49,11 +49,11 @@ function renderTemplateOptions(viewModel) {
 function renderSummary(summary) {
     getElement("item-unit-summary").innerHTML = `
         <div><dt>Total de itens</dt><dd>${summary.itemCount}</dd></div>
-        <div><dt>Com unidade efetiva</dt><dd>${summary.effectiveUnitCount}</dd></div>
-        <div><dt>Sem unidade</dt><dd>${summary.withoutUnitCount}</dd></div>
-        <div><dt>Configuração manual</dt><dd>${summary.manualCount}</dd></div>
-        <div><dt>Sugestão automática</dt><dd>${summary.suggestedCount}</dd></div>
-        <div><dt>Revisão recomendada</dt><dd>${summary.needsReviewCount}</dd></div>
+        <div><dt>Perfis completos</dt><dd>${summary.completeProfileCount}</dd></div>
+        <div><dt>Revisão necessária</dt><dd>${summary.needsReviewCount}</dd></div>
+        <div><dt>Sem perfil</dt><dd>${summary.withoutProfileCount}</dd></div>
+        <div><dt>Pacote ambíguo</dt><dd>${summary.ambiguousPackageCount}</dd></div>
+        <div><dt>Porção sem peso</dt><dd>${summary.portionWithoutWeightCount}</dd></div>
     `;
 }
 
@@ -63,11 +63,32 @@ function matchesSearch(item, group) {
     return `${item.code} ${item.name} ${group.name}`.toLocaleLowerCase("pt-BR").includes(query);
 }
 
+function renderAllowedUnit(unit) {
+    const factor = unit.factorToBase ? `fator ${unit.factorToBase}` : "fator indefinido";
+    const review = unit.requiresReview ? " · revisar" : "";
+    return `
+        <li>
+            <strong>${escapeHtml(unit.label)}</strong>
+            <span>normaliza: ${escapeHtml(unit.normalizedUnit)} · ${escapeHtml(factor)}${review}</span>
+        </li>
+    `;
+}
+
+function renderDefaultUnitOptions(setting) {
+    if (!setting?.allowedUnits.length) return '<option value="">Sem opções geradas</option>';
+    return setting.allowedUnits.map((unit) => `
+        <option value="${escapeHtml(unit.label)}" ${unit.label === setting.defaultInputUnit ? "selected" : ""}>
+            ${escapeHtml(unit.label)}
+        </option>
+    `).join("");
+}
+
 function renderSettingCard(item, setting) {
-    const suggestedUnit = setting?.suggestedUnit || "—";
-    const effectiveUnit = setting?.effectiveUnit || "—";
+    const baseUnit = setting?.baseUnit || "—";
+    const defaultInputUnit = setting?.defaultInputUnit || "—";
     const source = sourceLabels[setting?.source] || sourceLabels.unknown;
     const confidence = confidenceLabels[setting?.confidence] || confidenceLabels.unknown;
+    const reviewLabel = setting?.needsReview ? "sim" : "não";
     return `
         <article class="item-unit-card">
             <header>
@@ -75,18 +96,32 @@ function renderSettingCard(item, setting) {
                 <span>Código: ${escapeHtml(item.code)}</span>
             </header>
             <dl class="item-unit-metadata">
-                <div><dt>Sugerida</dt><dd>${escapeHtml(suggestedUnit)}</dd></div>
+                <div><dt>Unidade base</dt><dd>${escapeHtml(baseUnit)}</dd></div>
+                <div><dt>Padrão de entrada</dt><dd><strong>${escapeHtml(defaultInputUnit)}</strong></dd></div>
                 <div><dt>Origem</dt><dd>${escapeHtml(source)}</dd></div>
                 <div><dt>Confiança</dt><dd>${escapeHtml(confidence)}</dd></div>
-                <div><dt>Efetiva</dt><dd><strong>${escapeHtml(effectiveUnit)}</strong></dd></div>
+                <div><dt>Revisão necessária</dt><dd>${reviewLabel}</dd></div>
             </dl>
+            <h5>Unidades permitidas</h5>
+            ${setting?.allowedUnits.length
+        ? `<ul class="item-unit-allowed-list">${setting.allowedUnits.map(renderAllowedUnit).join("")}</ul>`
+        : '<p class="item-unit-empty">Nenhum perfil automático encontrado.</p>'}
             <form class="item-unit-form" data-item-unit-form data-item-code="${escapeHtml(item.code)}">
-                <label>Unidade manual
-                    <input type="text" name="manualUnit" maxlength="60" autocomplete="off" value="${escapeHtml(setting?.manualUnit || "")}" placeholder="Ex.: kg, un, caixa">
+                <label>Unidade base
+                    <input type="text" name="baseUnit" maxlength="60" autocomplete="off" value="${escapeHtml(setting?.baseUnit || "")}" placeholder="Ex.: un, kg, l, porção">
+                </label>
+                <label>Unidade padrão ao contar
+                    <select name="defaultInputUnit" ${setting?.allowedUnits.length ? "" : "disabled"}>
+                        ${renderDefaultUnitOptions(setting)}
+                    </select>
+                </label>
+                <label class="item-unit-review-field">
+                    <input type="checkbox" name="needsReview" ${setting?.needsReview ? "checked" : ""}>
+                    Marcar para revisão
                 </label>
                 <div class="item-unit-actions">
-                    <button type="submit">Salvar manual</button>
-                    <button type="button" data-clear-item-unit="${escapeHtml(item.code)}" ${setting?.manualUnit ? "" : "disabled"}>Limpar manual</button>
+                    <button type="submit" ${setting?.allowedUnits.length ? "" : "disabled"}>Salvar perfil manual</button>
+                    <button type="button" data-clear-item-unit="${escapeHtml(item.code)}" ${setting?.source === "manual" ? "" : "disabled"}>Limpar configuração</button>
                 </div>
             </form>
         </article>
@@ -152,7 +187,11 @@ export function connectItemUnitSettingsEvents(handlers) {
         const form = event.target.closest("[data-item-unit-form]");
         if (!form) return;
         event.preventDefault();
-        await handlers.onSaveManual(form.dataset.itemCode, form.elements.manualUnit.value);
+        await handlers.onSaveManual(form.dataset.itemCode, {
+            baseUnit: form.elements.baseUnit.value,
+            defaultInputUnit: form.elements.defaultInputUnit.value,
+            needsReview: form.elements.needsReview.checked
+        });
     });
     getElement("item-unit-groups").addEventListener("click", async (event) => {
         const button = event.target.closest("[data-clear-item-unit]");
