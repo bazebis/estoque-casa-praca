@@ -12,7 +12,9 @@ const adminSections = {
     catalog: "admin-section-catalog",
     "catalog-import": "admin-section-catalog-import",
     units: "admin-section-units",
+    "quick-pilot": "admin-section-quick-pilot",
     templates: "admin-section-templates",
+    "whatsapp-settings": "admin-section-whatsapp-settings",
     locations: "admin-section-locations",
     preparation: "admin-section-preparation",
     "item-locations": "admin-section-item-locations",
@@ -53,6 +55,14 @@ export function showAdminMenu() {
 
 export function showCountTemplatesAdminSection() {
     showAdminSection("templates");
+}
+
+export function showQuickPilotAdminSection() {
+    showAdminSection("quick-pilot");
+}
+
+export function showWhatsappSettingsAdminSection() {
+    showAdminSection("whatsapp-settings");
 }
 
 export function showLocationNodesAdminSection() {
@@ -768,7 +778,7 @@ async function copyFinalReport() {
 
 function sendWhatsappText(text) {
     const message = encodeURIComponent(text);
-    window.open(`https://wa.me/5516997530847?text=${message}`, "_blank");
+    window.open(`https://wa.me/?text=${message}`, "_blank");
 }
 
 function renderHistoryEmptyState(container) {
@@ -1234,6 +1244,16 @@ function connectAdminNavigationEvents(handlers) {
                 return;
             }
 
+            if (target === "quick-pilot") {
+                handlers.onOpenQuickPilot();
+                return;
+            }
+
+            if (target === "whatsapp-settings") {
+                handlers.onOpenWhatsappSettings();
+                return;
+            }
+
             if (target === "locations") {
                 handlers.onOpenLocationNodes();
                 return;
@@ -1267,13 +1287,6 @@ function connectAdminNavigationEvents(handlers) {
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
-    getElement("btn-home-templates").addEventListener("click", handlers.onOpenPilotCountTemplates);
-    getElement("btn-home-locations").addEventListener("click", handlers.onOpenPilotLocationNodes);
-    getElement("btn-home-preparation").addEventListener("click", handlers.onOpenPilotCountPreparation);
-    getElement("btn-home-item-locations").addEventListener("click", handlers.onOpenPilotItemLocationLinks);
-    getElement("btn-home-location-item-map").addEventListener("click", handlers.onOpenPilotLocationItemMap);
-    getElement("btn-home-location-count-sessions").addEventListener("click", handlers.onOpenPilotLocationCountSessions);
-    getElement("btn-home-about").addEventListener("click", handlers.onOpenPilotAbout);
     getElement("btn-historico").addEventListener("click", handlers.onOpenHistory);
     getElement("btn-fechar-historico").addEventListener("click", handlers.onCloseHistory);
     getElement("btn-adicionar-item").addEventListener("click", async () => {

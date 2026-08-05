@@ -16,6 +16,7 @@ import {
     normalizeLocationCountSessions,
     validateLocationCountSession
 } from "./locationCountSessions.js";
+import { normalizeWhatsappSettings, validateWhatsappSettings } from "./whatsappSettings.js";
 import { normalizeCustomUnits } from "./units.js";
 import {
     bulkPut,
@@ -39,6 +40,7 @@ const countTemplatesStorageKey = "countTemplates";
 const locationNodesStorageKey = "locationNodes";
 const itemLocationLinksStorageKey = "itemLocationLinks";
 const locationCountSessionsStorageKey = "locationCountSessions";
+const whatsappSettingsStorageKey = "whatsappSettings";
 const migrationFlagKey = "localStorageMigrationCompleted";
 const countTemplatesMigrationFlagKey = "countTemplatesLocalStorageMigrationCompleted";
 const locationNodesMigrationFlagKey = "locationNodesLocalStorageMigrationCompleted";
@@ -232,6 +234,27 @@ function saveLocalItemLocationLink(link) {
 function deleteLocalItemLocationLink(linkId) {
     const links = loadLocalItemLocationLinks().filter((link) => link.id !== linkId);
     writeJson(itemLocationLinksStorageKey, links);
+}
+
+function saveLocalItemLocationLinksBatch(links) {
+    const linkById = new Map(loadLocalItemLocationLinks().map((link) => [link.id, link]));
+
+    links.forEach((link) => linkById.set(link.id, link));
+    writeJson(itemLocationLinksStorageKey, sortItemLocationLinks([...linkById.values()]));
+    return links;
+}
+
+function loadLocalWhatsappSettings() {
+    return normalizeWhatsappSettings(readJson(whatsappSettingsStorageKey));
+}
+
+function saveLocalWhatsappSettings(settings) {
+    writeJson(whatsappSettingsStorageKey, settings);
+    return settings;
+}
+
+function clearLocalWhatsappSettings() {
+    localStorage.removeItem(whatsappSettingsStorageKey);
 }
 
 function sortLocationCountSessions(sessions) {
@@ -799,6 +822,44 @@ export async function saveItemLocationLink(link) {
     return validation.link;
 }
 
+function validateItemLocationLinkBatch(links, templates, locations, existingLinks) {
+    const validatedLinks = [];
+
+    for (const link of links) {
+        const timestamp = new Date().toISOString();
+        const validation = validateItemLocationLink({
+            ...link,
+            createdAt: link.createdAt || timestamp,
+            updatedAt: timestamp
+        }, templates, locations, [...existingLinks, ...validatedLinks]);
+
+        if (!validation.isValid) {
+            throw new Error(validation.error || "Vínculo entre item e local inválido.");
+        }
+
+        validatedLinks.push(validation.link);
+    }
+
+    return validatedLinks;
+}
+
+export async function saveItemLocationLinksBatch(links) {
+    if (!Array.isArray(links) || links.length === 0) return [];
+    const [templates, locations, existingLinks] = await Promise.all([
+        listCountTemplates(),
+        listLocationNodes(),
+        listItemLocationLinks()
+    ]);
+    const validatedLinks = validateItemLocationLinkBatch(links, templates, locations, existingLinks);
+
+    await runWithFallback(
+        () => bulkPut(storeNames.itemLocationLinks, validatedLinks),
+        () => saveLocalItemLocationLinksBatch(validatedLinks)
+    );
+    saveLocalItemLocationLinksBatch(validatedLinks);
+    return validatedLinks;
+}
+
 export async function deleteItemLocationLink(linkId) {
     const normalizedId = String(linkId || "").trim();
 
@@ -830,6 +891,32 @@ export async function listLinksByItem(templateId, itemCode) {
     return (await listItemLocationLinks()).filter((link) => (
         link.templateId === normalizedTemplateId && link.itemCode === normalizedItemCode
     ));
+}
+
+export async function loadWhatsappSettings() {
+    return runWithFallback(async () => {
+        const storedSettings = await getFromStore(storeNames.appState, whatsappSettingsStorageKey);
+        return storedSettings ? normalizeWhatsappSettings(storedSettings.value) : loadLocalWhatsappSettings();
+    }, loadLocalWhatsappSettings);
+}
+
+export async function saveWhatsappSettings(settings) {
+    const validation = validateWhatsappSettings({ ...settings, updatedAt: new Date().toISOString() });
+
+    await runWithFallback(
+        () => putInStore(storeNames.appState, { key: whatsappSettingsStorageKey, value: validation.settings }),
+        () => saveLocalWhatsappSettings(validation.settings)
+    );
+    saveLocalWhatsappSettings(validation.settings);
+    return validation;
+}
+
+export async function clearWhatsappSettings() {
+    await runWithFallback(
+        () => deleteFromStore(storeNames.appState, whatsappSettingsStorageKey),
+        clearLocalWhatsappSettings
+    );
+    clearLocalWhatsappSettings();
 }
 
 export async function listLocationCountSessions() {

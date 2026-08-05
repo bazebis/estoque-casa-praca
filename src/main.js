@@ -48,6 +48,17 @@ import {
 } from "./locationNodesUi.js";
 import { registerPwa } from "./pwa.js";
 import {
+    buildQuickPilotLinkCandidates,
+    buildQuickPilotPlan,
+    summarizeQuickPilotStatus
+} from "./quickPilot.js";
+import {
+    connectQuickPilotEvents,
+    renderPilotDashboardStatus,
+    renderQuickPilot,
+    showQuickPilotFeedback
+} from "./quickPilotUi.js";
+import {
     addCountHistoryEntry,
     cancelLocationCountSession,
     clearCountingDraft,
@@ -71,6 +82,7 @@ import {
     listLinksByTemplate,
     listLocationNodes,
     listLocationCountSessions,
+    loadWhatsappSettings,
     saveBackupBeforeJsonImport,
     saveCatalogBackupBeforeImport,
     saveCatalog,
@@ -78,8 +90,11 @@ import {
     saveCountingDraft,
     saveCountTemplate,
     saveItemLocationLink,
+    saveItemLocationLinksBatch,
     saveLocationNode,
-    saveCustomUnits
+    saveCustomUnits,
+    saveWhatsappSettings,
+    clearWhatsappSettings
 } from "./storage.js";
 import {
     createCustomUnit,
@@ -116,9 +131,17 @@ import {
     showLocationCountSessionsAdminSection,
     showLocationItemMapAdminSection,
     showLocationNodesAdminSection,
+    showQuickPilotAdminSection,
+    showWhatsappSettingsAdminSection,
     showUnitsFeedback,
     updateConfigList
 } from "./ui.js";
+import { isWhatsappConfigured, normalizeWhatsappSettings } from "./whatsappSettings.js";
+import {
+    connectWhatsappSettingsEvents,
+    renderWhatsappSettings,
+    showWhatsappSettingsFeedback
+} from "./whatsappSettingsUi.js";
 
 registerPwa();
 
@@ -137,6 +160,7 @@ let selectedItemLinksTemplateId = null;
 let selectedLocationItemMapTemplateId = null;
 let selectedLocationCountSessionTemplateId = null;
 let selectedLocationCountSessionLocationId = null;
+let selectedQuickPilotTemplateId = null;
 let selectedLinkItemCode = null;
 let itemLinksLocationFilter = "";
 let itemLinksItemFilter = "";
@@ -521,38 +545,143 @@ function openCatalogConfig() {
     openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers);
 }
 
-async function openPilotCountTemplates() {
-    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "templates");
-    await openCountTemplates();
+async function loadQuickPilotContext() {
+    const [templates, locations, links] = await Promise.all([
+        listCountTemplates(),
+        listLocationNodes(),
+        listItemLocationLinks()
+    ]);
+    const selectedTemplate = templates.find((template) => template.id === selectedQuickPilotTemplateId)
+        || templates[0]
+        || null;
+
+    selectedQuickPilotTemplateId = selectedTemplate?.id || null;
+    return {
+        templates,
+        locations,
+        links,
+        selectedTemplate,
+        plan: buildQuickPilotPlan(selectedTemplate, locations, links)
+    };
 }
 
-async function openPilotLocationNodes() {
-    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "locations");
-    await openLocationNodes();
+async function refreshPilotDashboard() {
+    try {
+        const [{ plan }, whatsappSettings] = await Promise.all([
+            loadQuickPilotContext(),
+            loadWhatsappSettings()
+        ]);
+        renderPilotDashboardStatus(
+            summarizeQuickPilotStatus(plan),
+            isWhatsappConfigured(whatsappSettings)
+        );
+    } catch {
+        renderPilotDashboardStatus(summarizeQuickPilotStatus(null), false);
+    }
 }
 
-async function openPilotCountPreparation() {
-    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "preparation");
-    await openCountPreparation();
+async function refreshQuickPilotView() {
+    const context = await loadQuickPilotContext();
+    renderQuickPilot({
+        templates: context.templates,
+        selectedTemplateId: selectedQuickPilotTemplateId,
+        plan: context.plan
+    });
+    return context;
 }
 
-async function openPilotItemLocationLinks() {
-    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "item-locations");
-    await openItemLocationLinks();
+async function openQuickPilot() {
+    showQuickPilotAdminSection();
+    showQuickPilotFeedback("");
+
+    try {
+        await refreshQuickPilotView();
+    } catch {
+        showQuickPilotFeedback("Não foi possível preparar a configuração automática.", "error");
+    }
 }
 
-async function openPilotLocationItemMap() {
-    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "location-item-map");
-    await openLocationItemMap();
+async function selectQuickPilotTemplate(templateId) {
+    selectedQuickPilotTemplateId = templateId;
+    await openQuickPilot();
 }
 
-async function openPilotLocationCountSessions() {
-    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "location-count-sessions");
-    await openLocationCountSessions();
+async function saveQuickPilotLocations(plan) {
+    let created = 0;
+    let reactivated = 0;
+
+    for (const area of plan.areas) {
+        if (area.locationPlan.action === "create") {
+            await saveLocationNode(area.locationPlan.location);
+            created += 1;
+        } else if (area.locationPlan.action === "reactivate") {
+            await saveLocationNode({ ...area.locationPlan.location, active: true });
+            reactivated += 1;
+        }
+    }
+
+    return { created, reactivated };
 }
 
-function openPilotAbout() {
-    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "about");
+async function applyQuickPilotSetup() {
+    try {
+        const initialContext = await loadQuickPilotContext();
+        if (!initialContext.plan?.canApply) {
+            showQuickPilotFeedback("A configuração possui conflitos que precisam de ajuste manual.", "error");
+            return;
+        }
+
+        const locationResult = await saveQuickPilotLocations(initialContext.plan);
+        const updatedContext = await loadQuickPilotContext();
+        const candidates = buildQuickPilotLinkCandidates(updatedContext.plan, updatedContext.links)
+            .map((link) => ({ ...link, id: createItemLocationLinkId() }));
+        await saveItemLocationLinksBatch(candidates);
+        await refreshQuickPilotView();
+        await refreshPilotDashboard();
+        showQuickPilotFeedback(
+            `${initialContext.plan.areaCount} área(s): ${locationResult.created} local(is) criado(s), ${initialContext.plan.reusedLocationCount} reutilizado(s), ${locationResult.reactivated} reativado(s), ${candidates.length} vínculo(s) criado(s) e ${initialContext.plan.existingLinkCount} já existente(s).`,
+            "success"
+        );
+    } catch (error) {
+        showQuickPilotFeedback(error.message || "Não foi possível aplicar a configuração automática.", "error");
+    }
+}
+
+async function openWhatsappSettings() {
+    showWhatsappSettingsAdminSection();
+    showWhatsappSettingsFeedback("");
+
+    try {
+        renderWhatsappSettings(await loadWhatsappSettings());
+    } catch {
+        showWhatsappSettingsFeedback("Não foi possível carregar a configuração.", "error");
+    }
+}
+
+async function updateWhatsappSettings(values) {
+    try {
+        const result = await saveWhatsappSettings(values);
+        renderWhatsappSettings(result.settings);
+        await refreshPilotDashboard();
+        const warning = result.warnings[0];
+        showWhatsappSettingsFeedback(
+            warning ? `Configuração salva. ${warning}` : "Configuração salva neste aparelho.",
+            warning ? "warning" : "success"
+        );
+    } catch {
+        showWhatsappSettingsFeedback("Não foi possível salvar a configuração.", "error");
+    }
+}
+
+async function removeWhatsappSettings() {
+    try {
+        await clearWhatsappSettings();
+        renderWhatsappSettings(normalizeWhatsappSettings());
+        await refreshPilotDashboard();
+        showWhatsappSettingsFeedback("Configuração removida deste aparelho.", "success");
+    } catch {
+        showWhatsappSettingsFeedback("Não foi possível limpar a configuração.", "error");
+    }
 }
 
 async function restartCounting() {
@@ -638,6 +767,7 @@ async function importCountTemplate(jsonText, importFileName) {
             importFileName
         });
         await refreshCountTemplatesView();
+        await refreshPilotDashboard();
         showCountTemplateFeedback("Template importado e salvo neste dispositivo.", "success");
         return true;
     } catch {
@@ -672,6 +802,7 @@ async function removeCountTemplate(templateId) {
 
         await deleteCountTemplate(templateId);
         await refreshCountTemplatesView();
+        await refreshPilotDashboard();
         showCountTemplateFeedback("Template removido.", "success");
     } catch {
         showCountTemplateFeedback("Não foi possível remover o template.", "error");
@@ -821,6 +952,7 @@ async function createItemLocationLink(locationId) {
             active: true
         });
         await refreshItemLocationLinksView();
+        await refreshPilotDashboard();
         showItemLocationLinksFeedback("Item vinculado ao local.", "success");
     } catch (error) {
         showItemLocationLinksFeedback(error.message || "Não foi possível criar o vínculo.", "error");
@@ -838,6 +970,7 @@ async function toggleItemLocationLink(linkId, active) {
 
         await saveItemLocationLink({ ...link, active });
         await refreshItemLocationLinksView();
+        await refreshPilotDashboard();
         showItemLocationLinksFeedback(active ? "Vínculo ativado." : "Vínculo desativado.", "success");
     } catch (error) {
         showItemLocationLinksFeedback(error.message || "Não foi possível atualizar o vínculo.", "error");
@@ -854,6 +987,7 @@ async function removeItemLocationLink(linkId) {
 
         await deleteItemLocationLink(linkId);
         await refreshItemLocationLinksView();
+        await refreshPilotDashboard();
         showItemLocationLinksFeedback("Vínculo removido.", "success");
     } catch {
         showItemLocationLinksFeedback("Não foi possível remover o vínculo.", "error");
@@ -1047,6 +1181,7 @@ async function savePhysicalLocation(values) {
             order: existingNode?.order ?? getNextSiblingOrder(values.parentId, nodes)
         });
         await refreshLocationNodesView();
+        await refreshPilotDashboard();
         showLocationNodesFeedback(existingNode ? "Local atualizado." : "Local criado.", "success");
         return true;
     } catch (error) {
@@ -1076,6 +1211,7 @@ async function removePhysicalLocation(locationId) {
 
         await deleteLocationNode(locationId);
         await refreshLocationNodesView();
+        await refreshPilotDashboard();
         showLocationNodesFeedback("Local removido.", "success");
     } catch {
         showLocationNodesFeedback("Não foi possível remover o local.", "error");
@@ -1193,14 +1329,9 @@ const locationCountSessionHandlers = {
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
-    onOpenPilotCountTemplates: openPilotCountTemplates,
-    onOpenPilotLocationNodes: openPilotLocationNodes,
-    onOpenPilotCountPreparation: openPilotCountPreparation,
-    onOpenPilotItemLocationLinks: openPilotItemLocationLinks,
-    onOpenPilotLocationItemMap: openPilotLocationItemMap,
-    onOpenPilotLocationCountSessions: openPilotLocationCountSessions,
-    onOpenPilotAbout: openPilotAbout,
     onOpenHistory: openHistory,
+    onOpenQuickPilot: openQuickPilot,
+    onOpenWhatsappSettings: openWhatsappSettings,
     onOpenCountTemplates: openCountTemplates,
     onOpenLocationNodes: openLocationNodes,
     onOpenCountPreparation: openCountPreparation,
@@ -1252,6 +1383,16 @@ connectLocationCountSessionEvents({
     onOpenLocations: openLocationNodes,
     onOpenLinks: openItemLocationLinks
 });
+connectQuickPilotEvents({
+    onSelectTemplate: selectQuickPilotTemplate,
+    onOpenTemplates: openCountTemplates,
+    onApply: applyQuickPilotSetup
+});
+connectWhatsappSettingsEvents({
+    onSave: updateWhatsappSettings,
+    onClear: removeWhatsappSettings
+});
 
 renderUnitOptions();
 renderInitialSavedState();
+await refreshPilotDashboard();
