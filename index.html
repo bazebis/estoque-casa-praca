@@ -46,6 +46,10 @@
                 <strong>Mapa de itens por local</strong>
                 <span>Conferir os itens de cada local e diagnosticar pendências.</span>
             </button>
+            <button type="button" id="btn-home-location-count-sessions" class="pilot-module-button">
+                <strong>Sessões de contagem</strong>
+                <span>Preparar rascunhos por local, ainda sem registrar quantidades.</span>
+            </button>
             <button type="button" id="btn-home-about" class="pilot-module-button">
                 <strong>Sobre o app</strong>
                 <span>Consultar o escopo e as limitações deste piloto.</span>
@@ -94,6 +98,7 @@
                 <button type="button" class="admin-menu-button" data-admin-target="preparation">Preparação da contagem</button>
                 <button type="button" class="admin-menu-button" data-admin-target="item-locations">Itens por local</button>
                 <button type="button" class="admin-menu-button" data-admin-target="location-item-map">Mapa de itens por local</button>
+                <button type="button" class="admin-menu-button" data-admin-target="location-count-sessions">Sessões de contagem</button>
                 <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="history">Histórico de contagens</button>
                 <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="backup">Backup e restauração</button>
                 <button type="button" class="admin-menu-button" data-admin-target="about">Sobre o app</button>
@@ -319,6 +324,56 @@
                         <div id="location-item-map-diagnostics" class="location-item-map-diagnostics"></div>
                     </section>
                 </div>
+            </section>
+
+            <section id="admin-section-location-count-sessions" class="admin-section location-count-sessions-section" hidden>
+                <button type="button" class="admin-back-button">Voltar para configurações</button>
+                <h3>Sessões de contagem</h3>
+                <p>Prepare uma lista congelada dos itens vinculados a um local físico.</p>
+                <div class="location-count-session-scope-notice">
+                    <strong>Esta etapa ainda não registra quantidades.</strong>
+                    <span>A contagem operacional será implementada depois.</span>
+                </div>
+
+                <label id="location-count-session-template-field" for="location-count-session-template">
+                    Template
+                    <select id="location-count-session-template"></select>
+                </label>
+                <label id="location-count-session-location-field" for="location-count-session-location">
+                    Local físico
+                    <select id="location-count-session-location"></select>
+                </label>
+                <div class="location-count-session-navigation-actions">
+                    <button type="button" id="btn-location-count-session-templates">Abrir Templates</button>
+                    <button type="button" id="btn-location-count-session-locations">Abrir Locais físicos</button>
+                    <button type="button" id="btn-location-count-session-links">Abrir Itens por local</button>
+                </div>
+                <p id="location-count-sessions-feedback" class="location-count-sessions-feedback" aria-live="polite"></p>
+
+                <div id="location-count-session-no-template" class="location-count-session-requirement" hidden>
+                    <h4>Nenhum template importado</h4>
+                    <p>Importe primeiro um JSON em Templates de contagem.</p>
+                </div>
+                <div id="location-count-session-no-locations" class="location-count-session-requirement" hidden>
+                    <h4>Nenhum local físico cadastrado</h4>
+                    <p>Cadastre os locais antes de preparar uma sessão.</p>
+                </div>
+
+                <form id="location-count-session-form" class="location-count-session-form" hidden>
+                    <h4>Prévia da sessão</h4>
+                    <div id="location-count-session-errors" class="location-count-session-messages" hidden></div>
+                    <div id="location-count-session-warnings" class="location-count-session-messages" hidden></div>
+                    <div id="location-count-session-planned-items" class="location-count-session-planned-items"></div>
+                    <label for="location-count-session-notes">Observações opcionais</label>
+                    <textarea id="location-count-session-notes" rows="3" maxlength="500" placeholder="Ex.: conferir esta prateleira antes da abertura"></textarea>
+                    <button type="submit" id="btn-create-location-count-session">Criar sessão em rascunho</button>
+                </form>
+
+                <section class="location-count-sessions-existing">
+                    <h4>Sessões existentes</h4>
+                    <dl id="location-count-sessions-summary" class="location-count-sessions-summary"></dl>
+                    <div id="location-count-sessions-list" class="location-count-sessions-list"></div>
+                </section>
             </section>
 
             <section id="admin-section-history" class="admin-section" hidden>

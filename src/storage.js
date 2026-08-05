@@ -6,9 +6,16 @@ import {
     validateItemLocationLink
 } from "./itemLocationLinks.js";
 import {
+    getLocationPath,
     normalizeLocationNodes,
     validateLocationNode
 } from "./locationNodes.js";
+import {
+    buildPlannedItemsForLocation,
+    createLocationCountSessionDraftModel,
+    normalizeLocationCountSessions,
+    validateLocationCountSession
+} from "./locationCountSessions.js";
 import { normalizeCustomUnits } from "./units.js";
 import {
     bulkPut,
@@ -31,10 +38,12 @@ const customUnitsStorageKey = "customUnits";
 const countTemplatesStorageKey = "countTemplates";
 const locationNodesStorageKey = "locationNodes";
 const itemLocationLinksStorageKey = "itemLocationLinks";
+const locationCountSessionsStorageKey = "locationCountSessions";
 const migrationFlagKey = "localStorageMigrationCompleted";
 const countTemplatesMigrationFlagKey = "countTemplatesLocalStorageMigrationCompleted";
 const locationNodesMigrationFlagKey = "locationNodesLocalStorageMigrationCompleted";
 const itemLocationLinksMigrationFlagKey = "itemLocationLinksLocalStorageMigrationCompleted";
+const locationCountSessionsMigrationFlagKey = "locationCountSessionsLocalStorageMigrationCompleted";
 const catalogInitializedKey = "catalogInitialized";
 const currentDraftKey = "current";
 
@@ -225,6 +234,30 @@ function deleteLocalItemLocationLink(linkId) {
     writeJson(itemLocationLinksStorageKey, links);
 }
 
+function sortLocationCountSessions(sessions) {
+    return normalizeLocationCountSessions(sessions).sort((firstSession, secondSession) => (
+        new Date(secondSession.createdAt) - new Date(firstSession.createdAt)
+        || firstSession.id.localeCompare(secondSession.id, "pt-BR")
+    ));
+}
+
+function loadLocalLocationCountSessions() {
+    const sessions = readJson(locationCountSessionsStorageKey);
+    return sortLocationCountSessions(Array.isArray(sessions) ? sessions : []);
+}
+
+function saveLocalLocationCountSession(session) {
+    const sessions = loadLocalLocationCountSessions().filter((item) => item.id !== session.id);
+
+    writeJson(locationCountSessionsStorageKey, sortLocationCountSessions([...sessions, session]));
+    return session;
+}
+
+function deleteLocalLocationCountSession(sessionId) {
+    const sessions = loadLocalLocationCountSessions().filter((session) => session.id !== sessionId);
+    writeJson(locationCountSessionsStorageKey, sessions);
+}
+
 function saveLocalCatalogBackupBeforeImport(items) {
     const backup = {
         createdAt: new Date().toISOString(),
@@ -375,6 +408,28 @@ async function migrateItemLocationLinksToIndexedDB() {
     return localLinks.length > 0;
 }
 
+async function migrateLocationCountSessionsToIndexedDB() {
+    const migrationState = await getFromStore(storeNames.appState, locationCountSessionsMigrationFlagKey);
+
+    if (migrationState?.value === true) {
+        return false;
+    }
+
+    const localSessions = loadLocalLocationCountSessions();
+
+    if (localSessions.length > 0) {
+        await bulkPut(storeNames.locationCountSessions, localSessions);
+    }
+
+    await putInStore(storeNames.appState, {
+        key: locationCountSessionsMigrationFlagKey,
+        value: true,
+        completedAt: new Date().toISOString()
+    });
+
+    return localSessions.length > 0;
+}
+
 async function runWithFallback(dbOperation, fallbackOperation) {
     if (!shouldUseIndexedDB) {
         return fallbackOperation();
@@ -409,6 +464,7 @@ export async function initializeStorage() {
         const wereCountTemplatesMigrated = await migrateCountTemplatesToIndexedDB();
         const wereLocationNodesMigrated = await migrateLocationNodesToIndexedDB();
         const wereItemLocationLinksMigrated = await migrateItemLocationLinksToIndexedDB();
+        const wereLocationCountSessionsMigrated = await migrateLocationCountSessionsToIndexedDB();
         isStorageInitialized = true;
         return {
             ...getStorageStatus(),
@@ -416,6 +472,7 @@ export async function initializeStorage() {
                 || wereCountTemplatesMigrated
                 || wereLocationNodesMigrated
                 || wereItemLocationLinksMigrated
+                || wereLocationCountSessionsMigrated
         };
     } catch (error) {
         shouldUseIndexedDB = false;
@@ -773,4 +830,145 @@ export async function listLinksByItem(templateId, itemCode) {
     return (await listItemLocationLinks()).filter((link) => (
         link.templateId === normalizedTemplateId && link.itemCode === normalizedItemCode
     ));
+}
+
+export async function listLocationCountSessions() {
+    return runWithFallback(
+        async () => sortLocationCountSessions(await getAllFromStore(storeNames.locationCountSessions)),
+        loadLocalLocationCountSessions
+    );
+}
+
+export async function getLocationCountSession(sessionId) {
+    const normalizedId = String(sessionId || "").trim();
+
+    if (!normalizedId) {
+        return null;
+    }
+
+    return runWithFallback(
+        async () => normalizeLocationCountSessions([
+            await getFromStore(storeNames.locationCountSessions, normalizedId)
+        ])[0] || null,
+        () => loadLocalLocationCountSessions().find((session) => session.id === normalizedId) || null
+    );
+}
+
+function preserveSessionSnapshots(existingSession, candidate) {
+    if (!existingSession) {
+        return candidate;
+    }
+
+    return {
+        ...candidate,
+        id: existingSession.id,
+        templateId: existingSession.templateId,
+        templateNameSnapshot: existingSession.templateNameSnapshot,
+        locationId: existingSession.locationId,
+        locationPathSnapshot: existingSession.locationPathSnapshot,
+        reportAreaSnapshot: existingSession.reportAreaSnapshot,
+        plannedItems: existingSession.plannedItems,
+        plannedItemCount: existingSession.plannedItemCount,
+        activeLinkCountSnapshot: existingSession.activeLinkCountSnapshot,
+        createdAt: existingSession.createdAt
+    };
+}
+
+function validateSessionTransition(existingSession, nextSession) {
+    if (existingSession?.status === "canceled" && nextSession.status !== "canceled") {
+        throw new Error("Uma sessão cancelada não pode voltar para rascunho.");
+    }
+
+    if (existingSession?.status === "draft" && !["draft", "canceled"].includes(nextSession.status)) {
+        throw new Error("Nesta etapa, o rascunho só pode permanecer aberto ou ser cancelado.");
+    }
+}
+
+function validateNewSessionSource(session, templates, locations, links) {
+    const template = templates.find((item) => item.id === session.templateId);
+    const location = locations.find((item) => item.id === session.locationId);
+    const expectedItems = buildPlannedItemsForLocation(template, location, links, locations);
+    const expectedPath = getLocationPath(location?.id, locations).map((node) => node.name);
+
+    if (!location?.active) {
+        throw new Error("Não é possível criar uma sessão para um local inativo.");
+    }
+
+    if (session.templateNameSnapshot !== template?.name
+        || session.locationPathSnapshot.join("|") !== expectedPath.join("|")
+        || session.reportAreaSnapshot !== (location.reportArea || null)) {
+        throw new Error("Os dados da sessão não correspondem ao template e local atuais.");
+    }
+
+    if (expectedItems.length === 0 || JSON.stringify(expectedItems) !== JSON.stringify(session.plannedItems)) {
+        throw new Error("Os itens planejados não correspondem aos vínculos ativos atuais.");
+    }
+}
+
+export async function saveLocationCountSession(session) {
+    const [templates, locations, links, sessions] = await Promise.all([
+        listCountTemplates(),
+        listLocationNodes(),
+        listItemLocationLinks(),
+        listLocationCountSessions()
+    ]);
+    const existingSession = sessions.find((item) => item.id === String(session?.id || "").trim());
+    const timestamp = new Date().toISOString();
+    const candidate = preserveSessionSnapshots(existingSession, {
+        ...session,
+        createdAt: existingSession?.createdAt || session?.createdAt || timestamp,
+        updatedAt: timestamp
+    });
+    const validation = validateLocationCountSession(candidate, templates, locations, links);
+
+    validateSessionTransition(existingSession, candidate);
+    if (!validation.isValid) throw new Error(validation.error || "Sessão de contagem inválida.");
+    if (!existingSession) validateNewSessionSource(validation.session, templates, locations, links);
+
+    await runWithFallback(
+        () => putInStore(storeNames.locationCountSessions, validation.session),
+        () => saveLocalLocationCountSession(validation.session)
+    );
+    saveLocalLocationCountSession(validation.session);
+    return validation.session;
+}
+
+export async function createLocationCountSessionDraft({ templateId, locationId, notes = "" }) {
+    const [templates, locations, links] = await Promise.all([
+        listCountTemplates(),
+        listLocationNodes(),
+        listItemLocationLinks()
+    ]);
+    const template = templates.find((item) => item.id === String(templateId || "").trim());
+    const location = locations.find((item) => item.id === String(locationId || "").trim());
+    const draft = createLocationCountSessionDraftModel({ template, location, links, locations, notes });
+
+    return saveLocationCountSession(draft);
+}
+
+export async function cancelLocationCountSession(sessionId) {
+    const session = await getLocationCountSession(sessionId);
+
+    if (!session) throw new Error("Sessão de contagem não encontrada.");
+    if (session.status !== "draft") throw new Error("Somente sessões em rascunho podem ser canceladas.");
+
+    return saveLocationCountSession({
+        ...session,
+        status: "canceled",
+        canceledAt: new Date().toISOString()
+    });
+}
+
+export async function deleteLocationCountSession(sessionId) {
+    const normalizedId = String(sessionId || "").trim();
+
+    if (!normalizedId) {
+        return;
+    }
+
+    await runWithFallback(
+        () => deleteFromStore(storeNames.locationCountSessions, normalizedId),
+        () => deleteLocalLocationCountSession(normalizedId)
+    );
+    deleteLocalLocationCountSession(normalizedId);
 }

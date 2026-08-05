@@ -37,6 +37,11 @@ import {
     showLocationItemMapFeedback
 } from "./locationItemMapUi.js";
 import {
+    connectLocationCountSessionEvents,
+    renderLocationCountSessions,
+    showLocationCountSessionsFeedback
+} from "./locationCountSessionsUi.js";
+import {
     connectLocationNodeEvents,
     renderLocationNodes,
     showLocationNodesFeedback
@@ -44,10 +49,13 @@ import {
 import { registerPwa } from "./pwa.js";
 import {
     addCountHistoryEntry,
+    cancelLocationCountSession,
     clearCountingDraft,
+    createLocationCountSessionDraft,
     deleteCountTemplate,
     deleteItemLocationLink,
     deleteLocationNode,
+    deleteLocationCountSession,
     getCountTemplate,
     getItemLocationLink,
     getStorageStatus,
@@ -62,6 +70,7 @@ import {
     listItemLocationLinks,
     listLinksByTemplate,
     listLocationNodes,
+    listLocationCountSessions,
     saveBackupBeforeJsonImport,
     saveCatalogBackupBeforeImport,
     saveCatalog,
@@ -104,6 +113,7 @@ import {
     showCountPreparationAdminSection,
     showCountTemplatesAdminSection,
     showItemLocationLinksAdminSection,
+    showLocationCountSessionsAdminSection,
     showLocationItemMapAdminSection,
     showLocationNodesAdminSection,
     showUnitsFeedback,
@@ -125,6 +135,8 @@ let pendingBackupImport = null;
 let selectedCountPreparationTemplateId = null;
 let selectedItemLinksTemplateId = null;
 let selectedLocationItemMapTemplateId = null;
+let selectedLocationCountSessionTemplateId = null;
+let selectedLocationCountSessionLocationId = null;
 let selectedLinkItemCode = null;
 let itemLinksLocationFilter = "";
 let itemLinksItemFilter = "";
@@ -534,6 +546,11 @@ async function openPilotLocationItemMap() {
     await openLocationItemMap();
 }
 
+async function openPilotLocationCountSessions() {
+    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "location-count-sessions");
+    await openLocationCountSessions();
+}
+
 function openPilotAbout() {
     openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "about");
 }
@@ -926,6 +943,92 @@ async function selectLocationItemMapTemplate(templateId) {
     }
 }
 
+async function refreshLocationCountSessionsView() {
+    const [templates, locations, links, sessions] = await Promise.all([
+        listCountTemplates(),
+        listLocationNodes(),
+        listItemLocationLinks(),
+        listLocationCountSessions()
+    ]);
+    const selectedTemplate = templates.find((item) => item.id === selectedLocationCountSessionTemplateId)
+        || templates[0]
+        || null;
+    const selectedLocation = locations.find((item) => item.id === selectedLocationCountSessionLocationId)
+        || locations.find((item) => item.active)
+        || locations[0]
+        || null;
+
+    selectedLocationCountSessionTemplateId = selectedTemplate?.id || null;
+    selectedLocationCountSessionLocationId = selectedLocation?.id || null;
+    renderLocationCountSessions({ templates, locations, links, sessions, selectedTemplate, selectedLocation }, locationCountSessionHandlers);
+}
+
+async function openLocationCountSessions() {
+    showLocationCountSessionsAdminSection();
+    showLocationCountSessionsFeedback("");
+
+    try {
+        await refreshLocationCountSessionsView();
+    } catch {
+        showLocationCountSessionsFeedback("Não foi possível carregar as sessões de contagem.", "error");
+    }
+}
+
+async function selectLocationCountSessionTemplate(templateId) {
+    selectedLocationCountSessionTemplateId = templateId;
+    await openLocationCountSessions();
+}
+
+async function selectLocationCountSessionLocation(locationId) {
+    selectedLocationCountSessionLocationId = locationId;
+    await openLocationCountSessions();
+}
+
+async function createLocationCountDraft(notes) {
+    try {
+        await createLocationCountSessionDraft({
+            templateId: selectedLocationCountSessionTemplateId,
+            locationId: selectedLocationCountSessionLocationId,
+            notes
+        });
+        await refreshLocationCountSessionsView();
+        showLocationCountSessionsFeedback("Sessão criada em rascunho.", "success");
+        return true;
+    } catch (error) {
+        showLocationCountSessionsFeedback(error.message || "Não foi possível criar a sessão.", "error");
+        return false;
+    }
+}
+
+async function cancelLocationCountDraft(sessionId) {
+    try {
+        const session = (await listLocationCountSessions()).find((item) => item.id === sessionId);
+        const locationPath = session?.locationPathSnapshot.join(" › ") || "este local";
+
+        if (!session || !window.confirm(`Cancelar o rascunho de ${locationPath}?`)) return;
+
+        await cancelLocationCountSession(sessionId);
+        await refreshLocationCountSessionsView();
+        showLocationCountSessionsFeedback("Sessão cancelada.", "success");
+    } catch (error) {
+        showLocationCountSessionsFeedback(error.message || "Não foi possível cancelar a sessão.", "error");
+    }
+}
+
+async function removeLocationCountSession(sessionId) {
+    try {
+        const session = (await listLocationCountSessions()).find((item) => item.id === sessionId);
+
+        if (!session || !window.confirm("Remover permanentemente esta sessão preparada?")) return;
+
+        await deleteLocationCountSession(sessionId);
+        await refreshLocationCountSessionsView();
+        showLocationCountSessionsFeedback("Sessão removida.", "success");
+    } catch {
+        showLocationCountSessionsFeedback("Não foi possível remover a sessão.", "error");
+    }
+}
+
 function getNextSiblingOrder(parentId, nodes) {
     const siblingOrders = nodes
         .filter((node) => node.parentId === parentId)
@@ -1082,6 +1185,11 @@ const itemLocationLinkHandlers = {
     onMoveLink: moveItemLocationLink
 };
 
+const locationCountSessionHandlers = {
+    onCancelSession: cancelLocationCountDraft,
+    onDeleteSession: removeLocationCountSession
+};
+
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
@@ -1090,6 +1198,7 @@ connectEvents({
     onOpenPilotCountPreparation: openPilotCountPreparation,
     onOpenPilotItemLocationLinks: openPilotItemLocationLinks,
     onOpenPilotLocationItemMap: openPilotLocationItemMap,
+    onOpenPilotLocationCountSessions: openPilotLocationCountSessions,
     onOpenPilotAbout: openPilotAbout,
     onOpenHistory: openHistory,
     onOpenCountTemplates: openCountTemplates,
@@ -1097,6 +1206,7 @@ connectEvents({
     onOpenCountPreparation: openCountPreparation,
     onOpenItemLocationLinks: openItemLocationLinks,
     onOpenLocationItemMap: openLocationItemMap,
+    onOpenLocationCountSessions: openLocationCountSessions,
     onCloseHistory: closeHistory,
     onAddItem: addItem,
     onAddUnit: addCustomUnit,
@@ -1130,6 +1240,14 @@ connectItemLocationLinkEvents({
 });
 connectLocationItemMapEvents({
     onSelectTemplate: selectLocationItemMapTemplate,
+    onOpenTemplates: openCountTemplates,
+    onOpenLocations: openLocationNodes,
+    onOpenLinks: openItemLocationLinks
+});
+connectLocationCountSessionEvents({
+    onSelectTemplate: selectLocationCountSessionTemplate,
+    onSelectLocation: selectLocationCountSessionLocation,
+    onCreateDraft: createLocationCountDraft,
     onOpenTemplates: openCountTemplates,
     onOpenLocations: openLocationNodes,
     onOpenLinks: openItemLocationLinks

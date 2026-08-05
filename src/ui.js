@@ -17,6 +17,7 @@ const adminSections = {
     preparation: "admin-section-preparation",
     "item-locations": "admin-section-item-locations",
     "location-item-map": "admin-section-location-item-map",
+    "location-count-sessions": "admin-section-location-count-sessions",
     history: "admin-section-history",
     backup: "admin-section-backup",
     about: "admin-section-about"
@@ -68,6 +69,10 @@ export function showItemLocationLinksAdminSection() {
 
 export function showLocationItemMapAdminSection() {
     showAdminSection("location-item-map");
+}
+
+export function showLocationCountSessionsAdminSection() {
+    showAdminSection("location-count-sessions");
 }
 
 function formatNumber(value) {
@@ -1249,6 +1254,11 @@ function connectAdminNavigationEvents(handlers) {
                 return;
             }
 
+            if (target === "location-count-sessions") {
+                handlers.onOpenLocationCountSessions();
+                return;
+            }
+
             showAdminSection(target);
         });
     });
@@ -1262,6 +1272,7 @@ export function connectEvents(handlers) {
     getElement("btn-home-preparation").addEventListener("click", handlers.onOpenPilotCountPreparation);
     getElement("btn-home-item-locations").addEventListener("click", handlers.onOpenPilotItemLocationLinks);
     getElement("btn-home-location-item-map").addEventListener("click", handlers.onOpenPilotLocationItemMap);
+    getElement("btn-home-location-count-sessions").addEventListener("click", handlers.onOpenPilotLocationCountSessions);
     getElement("btn-home-about").addEventListener("click", handlers.onOpenPilotAbout);
     getElement("btn-historico").addEventListener("click", handlers.onOpenHistory);
     getElement("btn-fechar-historico").addEventListener("click", handlers.onCloseHistory);
