@@ -24,6 +24,12 @@ import {
 } from "./countTemplatesUi.js";
 import { parseCatalogCsv } from "./csvImport.js";
 import { createHistoryEntry } from "./history.js";
+import { findTemplateItem } from "./itemLocationLinks.js";
+import {
+    connectItemLocationLinkEvents,
+    renderItemLocationLinks,
+    showItemLocationLinksFeedback
+} from "./itemLocationLinksUi.js";
 import {
     connectLocationNodeEvents,
     renderLocationNodes,
@@ -34,8 +40,10 @@ import {
     addCountHistoryEntry,
     clearCountingDraft,
     deleteCountTemplate,
+    deleteItemLocationLink,
     deleteLocationNode,
     getCountTemplate,
+    getItemLocationLink,
     getStorageStatus,
     initializeStorage,
     loadCatalog,
@@ -45,6 +53,8 @@ import {
     loadCustomUnits,
     loadRelevantLocalStorageKeys,
     listCountTemplates,
+    listItemLocationLinks,
+    listLinksByTemplate,
     listLocationNodes,
     saveBackupBeforeJsonImport,
     saveCatalogBackupBeforeImport,
@@ -52,6 +62,7 @@ import {
     saveCountingHistory,
     saveCountingDraft,
     saveCountTemplate,
+    saveItemLocationLink,
     saveLocationNode,
     saveCustomUnits
 } from "./storage.js";
@@ -86,6 +97,7 @@ import {
     showCatalogImportStatus,
     showCountPreparationAdminSection,
     showCountTemplatesAdminSection,
+    showItemLocationLinksAdminSection,
     showLocationNodesAdminSection,
     showUnitsFeedback,
     updateConfigList
@@ -104,6 +116,10 @@ let isCountingVisible = false;
 let pendingCatalogImport = null;
 let pendingBackupImport = null;
 let selectedCountPreparationTemplateId = null;
+let selectedItemLinksTemplateId = null;
+let selectedLinkItemCode = null;
+let itemLinksLocationFilter = "";
+let itemLinksItemFilter = "";
 
 await saveCatalog(catalog.listItems());
 
@@ -500,6 +516,11 @@ async function openPilotCountPreparation() {
     await openCountPreparation();
 }
 
+async function openPilotItemLocationLinks() {
+    openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "item-locations");
+    await openItemLocationLinks();
+}
+
 function openPilotAbout() {
     openConfigModal(catalog.listItems(), catalogHandlers, unitHandlers, "about");
 }
@@ -687,6 +708,172 @@ async function selectCountPreparationTemplate(templateId) {
     }
 }
 
+function createItemLocationLinkId() {
+    if (globalThis.crypto?.randomUUID) {
+        return `item_location_${globalThis.crypto.randomUUID()}`;
+    }
+
+    return `item_location_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+async function refreshItemLocationLinksView() {
+    const [templates, locations, allLinks] = await Promise.all([
+        listCountTemplates(),
+        listLocationNodes(),
+        listItemLocationLinks()
+    ]);
+    const selectedTemplate = templates.find((template) => template.id === selectedItemLinksTemplateId)
+        || templates[0]
+        || null;
+
+    selectedItemLinksTemplateId = selectedTemplate?.id || null;
+    selectedLinkItemCode = findTemplateItem(selectedTemplate, selectedLinkItemCode)?.item.code || null;
+    itemLinksLocationFilter = locations.some((location) => location.id === itemLinksLocationFilter)
+        ? itemLinksLocationFilter
+        : "";
+    itemLinksItemFilter = findTemplateItem(selectedTemplate, itemLinksItemFilter)?.item.code || "";
+    renderItemLocationLinks({
+        templates,
+        selectedTemplate,
+        locations,
+        links: allLinks.filter((link) => link.templateId === selectedItemLinksTemplateId),
+        selectedItemCode: selectedLinkItemCode,
+        locationFilter: itemLinksLocationFilter,
+        itemFilter: itemLinksItemFilter
+    }, itemLocationLinkHandlers);
+}
+
+async function openItemLocationLinks() {
+    showItemLocationLinksAdminSection();
+    showItemLocationLinksFeedback("");
+
+    try {
+        await refreshItemLocationLinksView();
+    } catch {
+        showItemLocationLinksFeedback("Não foi possível carregar os vínculos de itens.", "error");
+    }
+}
+
+async function selectItemLinksTemplate(templateId) {
+    selectedItemLinksTemplateId = templateId;
+    selectedLinkItemCode = null;
+    itemLinksLocationFilter = "";
+    itemLinksItemFilter = "";
+    await openItemLocationLinks();
+}
+
+async function selectLinkItem(itemCode) {
+    selectedLinkItemCode = itemCode;
+    await refreshItemLocationLinksView();
+}
+
+function getNextLinkOrder(links, templateId, locationId) {
+    const orders = links
+        .filter((link) => link.templateId === templateId && link.locationId === locationId)
+        .map((link) => Number(link.order) || 0);
+    return orders.length > 0 ? Math.max(...orders) + 1 : 0;
+}
+
+async function createItemLocationLink(locationId) {
+    if (!selectedItemLinksTemplateId || !selectedLinkItemCode || !locationId) {
+        showItemLocationLinksFeedback("Selecione um item e um local físico.", "error");
+        return;
+    }
+
+    try {
+        const links = await listItemLocationLinks();
+        await saveItemLocationLink({
+            id: createItemLocationLinkId(),
+            templateId: selectedItemLinksTemplateId,
+            itemCode: selectedLinkItemCode,
+            locationId,
+            order: getNextLinkOrder(links, selectedItemLinksTemplateId, locationId),
+            active: true
+        });
+        await refreshItemLocationLinksView();
+        showItemLocationLinksFeedback("Item vinculado ao local.", "success");
+    } catch (error) {
+        showItemLocationLinksFeedback(error.message || "Não foi possível criar o vínculo.", "error");
+    }
+}
+
+async function toggleItemLocationLink(linkId, active) {
+    try {
+        const link = await getItemLocationLink(linkId);
+
+        if (!link) {
+            showItemLocationLinksFeedback("Vínculo não encontrado.", "error");
+            return;
+        }
+
+        await saveItemLocationLink({ ...link, active });
+        await refreshItemLocationLinksView();
+        showItemLocationLinksFeedback(active ? "Vínculo ativado." : "Vínculo desativado.", "success");
+    } catch (error) {
+        showItemLocationLinksFeedback(error.message || "Não foi possível atualizar o vínculo.", "error");
+    }
+}
+
+async function removeItemLocationLink(linkId) {
+    try {
+        const link = await getItemLocationLink(linkId);
+
+        if (!link || !window.confirm(`Remover o vínculo de "${link.itemNameSnapshot}" com este local?`)) {
+            return;
+        }
+
+        await deleteItemLocationLink(linkId);
+        await refreshItemLocationLinksView();
+        showItemLocationLinksFeedback("Vínculo removido.", "success");
+    } catch {
+        showItemLocationLinksFeedback("Não foi possível remover o vínculo.", "error");
+    }
+}
+
+async function moveItemLocationLink(linkId, direction) {
+    try {
+        const links = await listLinksByTemplate(selectedItemLinksTemplateId);
+        const link = links.find((item) => item.id === linkId);
+
+        if (!link) {
+            return;
+        }
+
+        const siblings = links
+            .filter((item) => item.locationId === link.locationId)
+            .sort((first, second) => first.order - second.order);
+        const currentIndex = siblings.findIndex((item) => item.id === linkId);
+        const targetIndex = currentIndex + direction;
+
+        if (targetIndex < 0 || targetIndex >= siblings.length) {
+            return;
+        }
+
+        const reordered = [...siblings];
+        reordered.splice(currentIndex, 1);
+        reordered.splice(targetIndex, 0, link);
+
+        for (const [index, sibling] of reordered.entries()) {
+            await saveItemLocationLink({ ...sibling, order: index });
+        }
+
+        await refreshItemLocationLinksView();
+        showItemLocationLinksFeedback("Ordem dos itens atualizada.", "success");
+    } catch (error) {
+        showItemLocationLinksFeedback(error.message || "Não foi possível reordenar os vínculos.", "error");
+    }
+}
+
+async function filterItemLinksByLocation(locationId) {
+    itemLinksLocationFilter = locationId;
+    await refreshItemLocationLinksView();
+}
+
+async function filterItemLinksByItem(itemCode) {
+    itemLinksItemFilter = itemCode;
+    await refreshItemLocationLinksView();
+}
+
 function getNextSiblingOrder(parentId, nodes) {
     const siblingOrders = nodes
         .filter((node) => node.parentId === parentId)
@@ -835,17 +1022,27 @@ const locationNodeHandlers = {
     onMoveNode: movePhysicalLocation
 };
 
+const itemLocationLinkHandlers = {
+    onSelectItem: selectLinkItem,
+    onCreateLink: createItemLocationLink,
+    onToggleLink: toggleItemLocationLink,
+    onDeleteLink: removeItemLocationLink,
+    onMoveLink: moveItemLocationLink
+};
+
 connectEvents({
     onStartCounting: startCounting,
     onOpenConfig: openCatalogConfig,
     onOpenPilotCountTemplates: openPilotCountTemplates,
     onOpenPilotLocationNodes: openPilotLocationNodes,
     onOpenPilotCountPreparation: openPilotCountPreparation,
+    onOpenPilotItemLocationLinks: openPilotItemLocationLinks,
     onOpenPilotAbout: openPilotAbout,
     onOpenHistory: openHistory,
     onOpenCountTemplates: openCountTemplates,
     onOpenLocationNodes: openLocationNodes,
     onOpenCountPreparation: openCountPreparation,
+    onOpenItemLocationLinks: openItemLocationLinks,
     onCloseHistory: closeHistory,
     onAddItem: addItem,
     onAddUnit: addCustomUnit,
@@ -864,6 +1061,18 @@ connectLocationNodeEvents(locationNodeHandlers);
 connectCountPreparationEvents({
     onSelectTemplate: selectCountPreparationTemplate,
     onOpenTemplates: openCountTemplates
+});
+connectItemLocationLinkEvents({
+    onSelectTemplate: selectItemLinksTemplate,
+    onSelectItem: selectLinkItem,
+    onCreateLink: createItemLocationLink,
+    onToggleLink: toggleItemLocationLink,
+    onDeleteLink: removeItemLocationLink,
+    onMoveLink: moveItemLocationLink,
+    onFilterLocation: filterItemLinksByLocation,
+    onFilterItem: filterItemLinksByItem,
+    onOpenTemplates: openCountTemplates,
+    onOpenLocations: openLocationNodes
 });
 
 renderUnitOptions();
