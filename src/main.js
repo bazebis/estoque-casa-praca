@@ -22,6 +22,14 @@ import {
 } from "./backup.js";
 import { createCatalog } from "./catalog.js";
 import { createCounting } from "./counting.js";
+import { buildCountConsolidation } from "./countConsolidation.js";
+import {
+    connectCountConsolidationEvents,
+    hideCountConsolidationView,
+    renderCountConsolidation,
+    showCountConsolidationFeedback,
+    showCountConsolidationView
+} from "./countConsolidationUi.js";
 import { buildCoverageReport } from "./countPreparation.js";
 import {
     connectCountPreparationEvents,
@@ -195,6 +203,7 @@ let selectedLocationCountSessionTemplateId = null;
 let selectedLocationCountSessionLocationId = null;
 let selectedQuickPilotTemplateId = null;
 let selectedItemUnitTemplateId = null;
+let selectedCountConsolidationTemplateId = null;
 let activeAreaCountSessionId = null;
 let activeAreaOpenSessionCount = 0;
 let selectedLinkItemCode = null;
@@ -617,6 +626,62 @@ async function refreshPilotDashboard() {
     } catch {
         renderPilotDashboardStatus(summarizeQuickPilotStatus(null), false);
         renderAreaCountingOverview(buildAreaCountingOverview(null));
+    }
+}
+
+async function loadCountConsolidationContext() {
+    const [templates, sessions, entries, savedSettings, locations, links] = await Promise.all([
+        listCountTemplates(),
+        listLocationCountSessions(),
+        listLocationCountEntries(),
+        listItemUnitSettings(),
+        listLocationNodes(),
+        listItemLocationLinks()
+    ]);
+    const selectedTemplate = templates.find((template) => template.id === selectedCountConsolidationTemplateId)
+        || templates[0]
+        || null;
+    selectedCountConsolidationTemplateId = selectedTemplate?.id || null;
+    const unitSettings = resolveItemUnitSettings(selectedTemplate, savedSettings, entries);
+    const report = selectedTemplate ? buildCountConsolidation({
+        template: selectedTemplate,
+        sessions,
+        entries,
+        unitSettings,
+        locationNodes: locations,
+        itemLocationLinks: links
+    }) : null;
+    return { templates, selectedTemplate, report };
+}
+
+async function refreshCountConsolidationView() {
+    const context = await loadCountConsolidationContext();
+    renderCountConsolidation(context);
+    return context;
+}
+
+async function openCountConsolidation() {
+    showCountConsolidationView();
+    showCountConsolidationFeedback("Carregando a prévia…");
+    try {
+        await refreshCountConsolidationView();
+        showCountConsolidationFeedback("");
+    } catch (error) {
+        showCountConsolidationFeedback(error.message || "Não foi possível montar a consolidação.", "error");
+    }
+}
+
+function closeCountConsolidation() {
+    hideCountConsolidationView();
+}
+
+async function selectCountConsolidationTemplate(templateId) {
+    selectedCountConsolidationTemplateId = templateId;
+    try {
+        await refreshCountConsolidationView();
+        showCountConsolidationFeedback("");
+    } catch (error) {
+        showCountConsolidationFeedback(error.message || "Não foi possível analisar este template.", "error");
     }
 }
 
@@ -1615,6 +1680,11 @@ connectAreaCountingEvents({
     onCloseArea: closeAreaCounting,
     onAddEntry: addAreaCountEntry,
     onRemoveEntry: removeAreaCountEntry
+});
+connectCountConsolidationEvents({
+    onOpen: openCountConsolidation,
+    onClose: closeCountConsolidation,
+    onSelectTemplate: selectCountConsolidationTemplate
 });
 
 renderUnitOptions();

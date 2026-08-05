@@ -36,6 +36,7 @@
             <p id="pilot-area-guidance" class="pilot-area-guidance">Verificando áreas configuradas…</p>
             <div id="pilot-area-list" class="pilot-area-list"></div>
         </section>
+        <button type="button" id="btn-open-count-consolidation" class="pilot-consolidation-button">Prévia da consolidação</button>
         <div class="container pilot-settings-access">
             <button id="btn-config" aria-label="Abrir configurações"><span aria-hidden="true">&#9881;</span> Abrir configurações</button>
             <button id="btn-historico" class="pilot-hidden">Histórico de contagens</button>
@@ -55,7 +56,7 @@
             <progress id="area-counting-progress" value="0" max="1"></progress>
         </div>
         <p id="area-counting-session-warning" class="area-counting-warning" hidden></p>
-        <p class="area-counting-unit-notice">A unidade é texto livre. Unidades diferentes não são convertidas nem somadas.</p>
+        <p class="area-counting-unit-notice">Unidades previstas no perfil são convertidas para a base do item. Entradas sem conversão continuam preservadas como pendências.</p>
         <p id="area-counting-feedback" class="area-counting-feedback" aria-live="polite"></p>
         <div class="area-counting-guided-navigation" aria-label="Navegação entre itens">
             <button type="button" id="btn-previous-area-item">Anterior</button>
@@ -72,6 +73,56 @@
             <p id="area-counting-search-guidance" class="area-counting-search-guidance"></p>
             <div id="area-counting-search-results" class="area-counting-search-results"></div>
         </details>
+    </section>
+
+    <section id="count-consolidation-view" class="count-consolidation-view" hidden aria-labelledby="count-consolidation-title">
+        <div class="count-consolidation-topbar">
+            <button type="button" id="btn-close-count-consolidation">Voltar para áreas</button>
+            <span class="count-consolidation-readonly">Somente leitura</span>
+        </div>
+        <p class="pilot-badge">Diagnóstico operacional</p>
+        <h2 id="count-consolidation-title">Prévia da consolidação</h2>
+        <p>Confira os totais convertidos por área e o TOTAL calculado. Esta tela não finaliza sessões nem gera arquivos.</p>
+        <label id="count-consolidation-template-field" class="count-consolidation-template-field" for="count-consolidation-template">
+            Template analisado
+            <select id="count-consolidation-template"></select>
+        </label>
+        <p id="count-consolidation-feedback" class="count-consolidation-feedback" aria-live="polite"></p>
+        <div id="count-consolidation-no-template" class="count-consolidation-empty" hidden>
+            <h3>Nenhum template importado</h3>
+            <p>Importe primeiro um JSON em Configurações → Templates de contagem.</p>
+        </div>
+        <div id="count-consolidation-workspace" hidden>
+            <dl id="count-consolidation-summary" class="count-consolidation-summary"></dl>
+            <p class="count-consolidation-areas"><strong>Áreas reais:</strong> <span id="count-consolidation-area-list"></span></p>
+            <div id="count-consolidation-warnings" class="count-consolidation-warnings" hidden></div>
+            <section class="count-consolidation-session-section">
+                <h3>Sessões consideradas</h3>
+                <div id="count-consolidation-sessions"></div>
+            </section>
+            <section class="count-consolidation-filter-panel" aria-label="Filtros da consolidação">
+                <label for="count-consolidation-filter">Mostrar itens
+                    <select id="count-consolidation-filter">
+                        <option value="all">Todos</option>
+                        <option value="with_entries">Com lançamento</option>
+                        <option value="pending">Com pendência</option>
+                        <option value="without_entries">Sem lançamento</option>
+                    </select>
+                </label>
+                <label for="count-consolidation-search">Buscar por código, nome ou grupo
+                    <input type="search" id="count-consolidation-search" autocomplete="off" placeholder="Digite para filtrar">
+                </label>
+            </section>
+            <section class="count-consolidation-results">
+                <h3>Itens por grupo</h3>
+                <div id="count-consolidation-groups"></div>
+            </section>
+            <section class="count-consolidation-pending-section">
+                <h3>Pendências <span id="count-consolidation-pending-count"></span></h3>
+                <p>As entradas abaixo não participam integralmente do TOTAL. Faça os ajustes na contagem ou nos perfis em outra tela.</p>
+                <div id="count-consolidation-pending-list"></div>
+            </section>
+        </div>
     </section>
 
     <section id="rascunho-aviso" class="draft-notice pilot-hidden" hidden></section>
@@ -511,7 +562,7 @@
                     <li>O template JSON deve ser importado manualmente em cada aparelho.</li>
                     <li>O Piloto rápido pode criar áreas macro e vínculos automaticamente; os módulos detalhados continuam disponíveis para ajustes manuais.</li>
                     <li>A configuração de WhatsApp é opcional, local e não realiza envios automáticos.</li>
-                    <li>A contagem simples por área aceita múltiplas entradas e unidades textuais, sem conversão ou consolidação final.</li>
+                    <li>A contagem por área aceita múltiplas entradas, converte unidades previstas no perfil e oferece uma prévia somente leitura, sem consolidação final ou exportação oficial.</li>
                     <li>Ainda não existe integração com ERP ou API.</li>
                     <li>Ainda não existe sincronização de dados entre aparelhos.</li>
                     <li>Depois do primeiro carregamento ou instalação, o app pode abrir offline.</li>
