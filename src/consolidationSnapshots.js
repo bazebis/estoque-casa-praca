@@ -1,4 +1,5 @@
 const snapshotStatuses = new Set(["complete", "partial", "empty", "invalid"]);
+const finalizedStatuses = new Set(["finalized", "finalized_with_warnings"]);
 const snapshotSource = "consolidationPreview";
 
 function normalizeText(value) {
@@ -17,7 +18,7 @@ function normalizeNumber(value) {
 
 function normalizeSummary(summary = {}) {
     const fields = [
-        "consideredSessionCount", "duplicateSessionCount", "canceledSessionCount", "areaCount",
+        "consideredSessionCount", "duplicateSessionCount", "canceledSessionCount", "completedSessionCount", "areaCount",
         "areasWithEntries", "itemCount", "itemsWithEntries", "completeItemCount",
         "pendingItemCount", "pendingEntryCount"
     ];
@@ -112,8 +113,31 @@ function snapshotPendingEntry(pending) {
 function buildIgnoredSessions(selection = {}) {
     const duplicate = (selection.duplicateIgnored || []).map((session) => snapshotSession(session, "Sessão duplicada mais antiga."));
     const canceled = (selection.canceledIgnored || []).map((session) => snapshotSession(session, "Sessão cancelada."));
+    const completed = (selection.completedIgnored || []).map((session) => snapshotSession(session, "Sessão de ciclo finalizado."));
     const unsupported = (selection.unsupportedIgnored || []).map((session) => snapshotSession(session, "Status não aceito."));
-    return [...duplicate, ...canceled, ...unsupported];
+    return [...duplicate, ...canceled, ...completed, ...unsupported];
+}
+
+function normalizeFinalization(snapshot) {
+    const finalizedAt = normalizeTimestamp(snapshot?.finalizedAt);
+    if (!finalizedAt) {
+        return {
+            finalizedAt: null,
+            finalizedBy: "",
+            finalizedStatus: null,
+            finalizedSessionIds: [],
+            finalizationNotes: ""
+        };
+    }
+    const status = normalizeText(snapshot.finalizedStatus);
+    const sessionIds = Array.isArray(snapshot.finalizedSessionIds) ? snapshot.finalizedSessionIds : [];
+    return {
+        finalizedAt,
+        finalizedBy: normalizeText(snapshot.finalizedBy) || "local-user",
+        finalizedStatus: finalizedStatuses.has(status) ? status : "finalized",
+        finalizedSessionIds: [...new Set(sessionIds.map(normalizeText).filter(Boolean))],
+        finalizationNotes: String(snapshot.finalizationNotes ?? "").trim()
+    };
 }
 
 export function classifyConsolidationSnapshot(consolidation) {
@@ -217,6 +241,7 @@ export function normalizeConsolidationSnapshot(snapshot, timestamp = new Date().
     const sessionsIgnored = Array.isArray(snapshot.sessionsIgnored) ? snapshot.sessionsIgnored : [];
     const items = Array.isArray(snapshot.items) ? snapshot.items : [];
     const pendingEntries = Array.isArray(snapshot.pendingEntries) ? snapshot.pendingEntries : [];
+    const finalization = normalizeFinalization(snapshot);
     return {
         id: normalizeText(snapshot.id),
         templateId: normalizeText(snapshot.templateId),
@@ -232,7 +257,8 @@ export function normalizeConsolidationSnapshot(snapshot, timestamp = new Date().
         items: items.map(normalizeSnapshotItem),
         pendingEntries: pendingEntries.map(normalizeSavedPending),
         source: normalizeText(snapshot.source),
-        notes: normalizeText(snapshot.notes)
+        notes: normalizeText(snapshot.notes),
+        ...finalization
     };
 }
 
@@ -251,7 +277,29 @@ export function validateConsolidationSnapshot(snapshot) {
     if (!snapshotStatuses.has(candidate?.status)) errors.push("O status do snapshot é inválido.");
     if (candidate?.label.length > 160) errors.push("O nome deve ter no máximo 160 caracteres.");
     if (candidate?.notes.length > 500) errors.push("As observações devem ter no máximo 500 caracteres.");
+    if (candidate?.finalizedBy.length > 120) errors.push("A identificação da finalização deve ter no máximo 120 caracteres.");
+    if (candidate?.finalizationNotes.length > 1000) errors.push("As observações da finalização devem ter no máximo 1000 caracteres.");
     return { isValid: errors.length === 0, error: errors[0] || "", errors, snapshot: errors.length ? null : candidate };
+}
+
+export function isConsolidationSnapshotFinalized(snapshot) {
+    return Boolean(normalizeConsolidationSnapshot(snapshot)?.finalizedAt);
+}
+
+export function markConsolidationSnapshotFinalized(snapshot, details = {}) {
+    const candidate = normalizeConsolidationSnapshot(snapshot);
+    if (!candidate?.id) throw new Error("Snapshot de consolidação inválido.");
+    if (candidate.finalizedAt) return candidate;
+    const timestamp = normalizeTimestamp(details.finalizedAt, new Date().toISOString());
+    return normalizeConsolidationSnapshot({
+        ...candidate,
+        finalizedAt: timestamp,
+        finalizedBy: normalizeText(details.finalizedBy) || "local-user",
+        finalizedStatus: details.hasWarnings ? "finalized_with_warnings" : "finalized",
+        finalizedSessionIds: details.finalizedSessionIds,
+        finalizationNotes: String(details.finalizationNotes ?? "").trim(),
+        updatedAt: timestamp
+    }, timestamp);
 }
 
 export function summarizeConsolidationSnapshot(snapshot) {
@@ -263,6 +311,8 @@ export function summarizeConsolidationSnapshot(snapshot) {
         pendingEntryCount: normalized?.pendingEntries.length || 0,
         areaCount: normalized?.realAreas.length || 0,
         includedSessionCount: normalized?.sessionsIncluded.length || 0,
-        ignoredSessionCount: normalized?.sessionsIgnored.length || 0
+        ignoredSessionCount: normalized?.sessionsIgnored.length || 0,
+        finalized: Boolean(normalized?.finalizedAt),
+        finalizedSessionCount: normalized?.finalizedSessionIds.length || 0
     };
 }

@@ -39,6 +39,7 @@ import {
     selectSnapshotShareMessage,
     showConsolidationSnapshotsFeedback,
     showConsolidationSnapshotsView,
+    showSnapshotFinalizationFeedback,
     showSnapshotCsvExportFeedback,
     showSnapshotShareFeedback
 } from "./consolidationSnapshotsUi.js";
@@ -125,6 +126,7 @@ import {
     getItemLocationLink,
     getLocationCountSession,
     getStorageStatus,
+    finalizeConsolidationSnapshot,
     initializeStorage,
     loadCatalog,
     loadCountingDraft,
@@ -781,14 +783,56 @@ async function openConsolidationSnapshotDetail(snapshotId) {
         activeConsolidationSnapshotId = snapshot.id;
         activeConsolidationSnapshot = snapshot;
         activeSnapshotWhatsappSettings = whatsappSettings;
-        renderConsolidationSnapshotDetail(snapshot, {
-            shareCapability: getShareCapability(),
-            shareMessage: buildWhatsappMessage(snapshot, "main", whatsappSettings),
-            whatsappConfigured: isWhatsappConfigured(whatsappSettings)
-        });
+        renderConsolidationSnapshotDetail(snapshot, buildSnapshotDetailOptions(snapshot));
         showConsolidationSnapshotsFeedback("");
     } catch (error) {
         showConsolidationSnapshotsFeedback(error.message || "Não foi possível abrir o fechamento.", "error");
+    }
+}
+
+function buildSnapshotDetailOptions(snapshot) {
+    return {
+        shareCapability: getShareCapability(),
+        shareMessage: buildWhatsappMessage(snapshot, "main", activeSnapshotWhatsappSettings),
+        whatsappConfigured: isWhatsappConfigured(activeSnapshotWhatsappSettings)
+    };
+}
+
+function confirmSnapshotFinalization(snapshot) {
+    const confirmed = window.confirm(
+        "Finalizar esta contagem vai fechar as sessões usadas neste fechamento e iniciar o próximo ciclo de contagem limpo. Os dados não serão apagados. Continuar?"
+    );
+    if (!confirmed) return false;
+    if (snapshot.status === "partial") {
+        return window.confirm("Este fechamento possui pendências. Finalizar mesmo assim?");
+    }
+    if (snapshot.status === "empty") {
+        return window.confirm("Este fechamento está vazio. Confirma a finalização sem lançamentos?");
+    }
+    return true;
+}
+
+async function finalizeSavedConsolidationSnapshot() {
+    try {
+        const snapshot = await getConsolidationSnapshot(activeConsolidationSnapshotId);
+        if (!snapshot) throw new Error("Abra um fechamento salvo antes de finalizar.");
+        if (snapshot.finalizedAt) {
+            showSnapshotFinalizationFeedback("Esta contagem já foi finalizada.", "warning");
+            return;
+        }
+        if (snapshot.status === "invalid") throw new Error("Um fechamento inválido não pode ser finalizado.");
+        if (!confirmSnapshotFinalization(snapshot)) return;
+        const result = await finalizeConsolidationSnapshot(snapshot.id, { finalizedBy: "local-user" });
+        activeConsolidationSnapshot = result.snapshot;
+        activeCountConsolidationReport = null;
+        renderConsolidationSnapshotDetail(result.snapshot, buildSnapshotDetailOptions(result.snapshot));
+        await refreshPilotDashboard();
+        const message = result.warnings.length
+            ? `Contagem finalizada com avisos: ${result.warnings.join(" ")}`
+            : `Contagem finalizada. ${result.completedSessions.length} sessão(ões) foi(ram) fechada(s) agora.`;
+        showSnapshotFinalizationFeedback(message, result.warnings.length ? "warning" : "success");
+    } catch (error) {
+        showSnapshotFinalizationFeedback(error.message || "Não foi possível finalizar a contagem.", "error");
     }
 }
 
@@ -1895,7 +1939,8 @@ connectConsolidationSnapshotsEvents({
     onShareMainCsv: () => shareSavedSnapshotCsv("main"),
     onSharePendingCsv: () => shareSavedSnapshotCsv("pending"),
     onOpenWhatsapp: openSavedSnapshotWhatsapp,
-    onCopyMessage: copySavedSnapshotMessage
+    onCopyMessage: copySavedSnapshotMessage,
+    onFinalize: finalizeSavedConsolidationSnapshot
 });
 
 renderUnitOptions();

@@ -33,6 +33,7 @@ function renderTemplateOptions(templates, selectedTemplateId) {
 function renderSummary(summary) {
     const stats = [
         ["Sessões consideradas", summary.consideredSessionCount],
+        ["Sessões finalizadas ignoradas", summary.completedSessionCount],
         ["Áreas com lançamento", `${summary.areasWithEntries} de ${summary.areaCount}`],
         ["Itens com lançamento", `${summary.itemsWithEntries} de ${summary.itemCount}`],
         ["Itens completos", summary.completeItemCount],
@@ -137,6 +138,7 @@ function renderSession(session, tone = "") {
 
 function renderSessions(selection) {
     const ignored = selection.duplicateIgnored;
+    const completed = selection.completedIgnored || [];
     getElement("count-consolidation-sessions").innerHTML = `
         <details ${ignored.length ? "open" : ""}>
             <summary>${selection.selected.length} sessão(ões) considerada(s)</summary>
@@ -146,6 +148,12 @@ function renderSessions(selection) {
             <details class="is-warning" open>
                 <summary>${ignored.length} sessão(ões) duplicada(s) ignorada(s)</summary>
                 <ul>${ignored.map((session) => renderSession(session, "is-ignored")).join("")}</ul>
+            </details>
+        ` : ""}
+        ${completed.length ? `
+            <details>
+                <summary>${completed.length} sessão(ões) finalizada(s) ignorada(s)</summary>
+                <ul>${completed.map((session) => renderSession(session, "is-ignored")).join("")}</ul>
             </details>
         ` : ""}
     `;
@@ -188,6 +196,7 @@ function renderWarnings(report) {
     if (!report.sessionSelection.selected.length) warnings.push("Nenhuma sessão válida foi encontrada para este template.");
     if (report.sessionSelection.duplicateIgnored.length) warnings.push("Sessões duplicadas foram ignoradas para evitar dupla contagem.");
     if (report.sessionSelection.canceledIgnored.length) warnings.push(`${report.sessionSelection.canceledIgnored.length} sessão(ões) cancelada(s) ignorada(s).`);
+    if (report.sessionSelection.completedIgnored.length) warnings.push(`${report.sessionSelection.completedIgnored.length} sessão(ões) finalizada(s) pertence(m) a ciclos anteriores e foi(ram) ignorada(s).`);
     if (report.sessionSelection.unsupportedIgnored.length) warnings.push("Há sessões com status não reconhecido que foram ignoradas.");
     if (report.sessionAreaIssues.length) warnings.push(`${report.sessionAreaIssues.length} sessão(ões) está(ão) sem área válida do template.`);
     const outsideCount = report.pendingEntries.filter((pending) => pending.type === "outside_area").length;

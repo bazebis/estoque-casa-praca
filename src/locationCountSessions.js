@@ -3,8 +3,6 @@ import { getLocationPath, normalizeLocationNodes } from "./locationNodes.js";
 
 export const LOCATION_COUNT_SESSION_STATUSES = ["draft", "in_progress", "completed", "canceled"];
 
-const supportedStatuses = new Set(["draft", "in_progress", "canceled"]);
-
 function normalizeText(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ");
 }
@@ -182,9 +180,6 @@ function collectSessionErrors(candidate, templates, locations) {
     if (!locationExists) errors.push("O local da sessão não existe neste dispositivo.");
     if (candidate?.locationPathSnapshot.length === 0) errors.push("A sessão precisa do caminho do local.");
     if (!LOCATION_COUNT_SESSION_STATUSES.includes(candidate?.status)) errors.push("O status da sessão é inválido.");
-    if (candidate?.status && !supportedStatuses.has(candidate.status)) {
-        errors.push("Este status só estará disponível quando a contagem operacional for implementada.");
-    }
 
     return errors;
 }
@@ -201,7 +196,12 @@ function collectCountAndDateErrors(candidate) {
         || candidate.activeLinkCountSnapshot !== plannedItemCount) {
         errors.push("A quantidade de vínculos ativos não corresponde aos snapshots.");
     }
-    if (candidate?.finishedAt) errors.push("Esta etapa ainda não permite finalizar uma sessão.");
+    if (candidate?.status !== "completed" && candidate?.finishedAt) {
+        errors.push("Somente uma sessão finalizada pode ter data de término.");
+    }
+    if (candidate?.status === "completed" && !candidate.finishedAt) {
+        errors.push("Uma sessão finalizada precisa da data de término.");
+    }
     if (candidate?.status === "draft" && candidate.startedAt) errors.push("Um rascunho não pode ter data de início.");
     if (candidate?.status === "in_progress" && !candidate.startedAt) {
         errors.push("Uma sessão em andamento precisa da data de início.");
@@ -211,6 +211,9 @@ function collectCountAndDateErrors(candidate) {
     }
     if (candidate?.status === "draft" && candidate.canceledAt) errors.push("Um rascunho não pode ter data de cancelamento.");
     if (candidate?.status === "canceled" && !candidate.canceledAt) errors.push("Uma sessão cancelada precisa da data de cancelamento.");
+    if (candidate?.status === "completed" && candidate.canceledAt) {
+        errors.push("Uma sessão finalizada não pode ter data de cancelamento.");
+    }
 
     return errors;
 }

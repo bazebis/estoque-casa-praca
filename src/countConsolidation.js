@@ -5,7 +5,7 @@ import {
     summarizeConvertedEntries
 } from "./unitConversion.js";
 
-const acceptedSessionStatuses = new Set(["draft", "in_progress", "completed"]);
+const acceptedSessionStatuses = new Set(["draft", "in_progress"]);
 
 function normalizeText(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ");
@@ -62,11 +62,12 @@ export function selectLatestOpenSessionPerLocation(sessions = []) {
 export function selectSessionsForConsolidation(sessions = [], templateId = "") {
     const templateSessions = sessions.filter((session) => session.templateId === templateId);
     const canceledIgnored = templateSessions.filter((session) => session.status === "canceled");
+    const completedIgnored = templateSessions.filter((session) => session.status === "completed");
     const unsupportedIgnored = templateSessions.filter((session) => (
-        session.status !== "canceled" && !acceptedSessionStatuses.has(session.status)
+        !["canceled", "completed"].includes(session.status) && !acceptedSessionStatuses.has(session.status)
     ));
     const eligible = templateSessions.filter((session) => acceptedSessionStatuses.has(session.status));
-    return { ...selectLatestOpenSessionPerLocation(eligible), canceledIgnored, unsupportedIgnored };
+    return { ...selectLatestOpenSessionPerLocation(eligible), canceledIgnored, completedIgnored, unsupportedIgnored };
 }
 
 function buildTemplateItems(template) {
@@ -253,6 +254,7 @@ export function summarizeConsolidation(report) {
         consideredSessionCount: report?.sessionSelection?.selected.length || 0,
         duplicateSessionCount: report?.sessionSelection?.duplicateIgnored.length || 0,
         canceledSessionCount: report?.sessionSelection?.canceledIgnored.length || 0,
+        completedSessionCount: report?.sessionSelection?.completedIgnored.length || 0,
         areaCount: report?.realAreas.length || 0,
         areasWithEntries: areasWithEntries.size,
         itemCount: items.length,

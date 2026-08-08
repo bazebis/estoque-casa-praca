@@ -19,6 +19,7 @@ import {
 import {
     buildPlannedItemsForLocation,
     createLocationCountSessionDraftModel,
+    LOCATION_COUNT_SESSION_STATUSES,
     normalizeLocationCountSessions,
     validateLocationCountSession
 } from "./locationCountSessions.js";
@@ -29,6 +30,7 @@ import {
 } from "./locationCountEntries.js";
 import { normalizeWhatsappSettings, validateWhatsappSettings } from "./whatsappSettings.js";
 import {
+    markConsolidationSnapshotFinalized,
     normalizeConsolidationSnapshots,
     validateConsolidationSnapshot
 } from "./consolidationSnapshots.js";
@@ -1109,6 +1111,75 @@ export async function deleteConsolidationSnapshot(snapshotId) {
     await saveConsolidationSnapshotsState(remainingSnapshots);
 }
 
+function classifyFinalizationSessions(snapshot, sessions) {
+    const includedIds = [...new Set(snapshot.sessionsIncluded.map((session) => session.id).filter(Boolean))];
+    const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+    const matched = includedIds.map((sessionId) => sessionsById.get(sessionId)).filter(Boolean);
+    return {
+        missingSessionIds: includedIds.filter((sessionId) => !sessionsById.has(sessionId)),
+        canceledSessions: matched.filter((session) => session.status === "canceled"),
+        completedSessions: matched.filter((session) => session.status === "completed"),
+        openSessions: matched.filter((session) => ["draft", "in_progress"].includes(session.status)),
+        unsupportedSessions: matched.filter((session) => !LOCATION_COUNT_SESSION_STATUSES.includes(session.status)),
+        matchedCount: matched.length
+    };
+}
+
+function buildFinalizationWarnings(classification) {
+    const warnings = [];
+    if (classification.missingSessionIds.length) {
+        warnings.push(`${classification.missingSessionIds.length} sessão(ões) incluída(s) não foi(ram) encontrada(s).`);
+    }
+    if (classification.canceledSessions.length) {
+        warnings.push(`${classification.canceledSessions.length} sessão(ões) cancelada(s) foi(ram) preservada(s).`);
+    }
+    if (classification.unsupportedSessions.length) {
+        warnings.push(`${classification.unsupportedSessions.length} sessão(ões) com status desconhecido foi(ram) preservada(s).`);
+    }
+    return warnings;
+}
+
+async function completeSnapshotOpenSessions(openSessions, timestamp) {
+    const completed = [];
+    for (const session of openSessions) {
+        completed.push(await completeLocationCountSession(session.id, timestamp));
+    }
+    return completed;
+}
+
+export async function finalizeConsolidationSnapshot(snapshotId, options = {}) {
+    const snapshot = await getConsolidationSnapshot(snapshotId);
+    if (!snapshot) throw new Error("Fechamento não encontrado neste aparelho.");
+    if (snapshot.status === "invalid") throw new Error("Um fechamento inválido não pode ser finalizado.");
+    if (snapshot.finalizedAt) return { snapshot, wasAlreadyFinalized: true, warnings: [] };
+    const sessions = await listLocationCountSessions();
+    const classification = classifyFinalizationSessions(snapshot, sessions);
+    if (classification.matchedCount === 0) {
+        throw new Error("Nenhuma sessão incluída neste fechamento foi encontrada. A finalização foi cancelada.");
+    }
+    const timestamp = new Date().toISOString();
+    const completed = await completeSnapshotOpenSessions(classification.openSessions, timestamp);
+    const finalizedSessionIds = [
+        ...classification.completedSessions.map((session) => session.id),
+        ...completed.map((session) => session.id)
+    ];
+    const warnings = buildFinalizationWarnings(classification);
+    const notes = [String(options.finalizationNotes || "").trim(), ...warnings].filter(Boolean).join(" ");
+    const finalizedSnapshot = markConsolidationSnapshotFinalized(snapshot, {
+        finalizedAt: timestamp,
+        finalizedBy: options.finalizedBy || "local-user",
+        finalizedSessionIds,
+        finalizationNotes: notes,
+        hasWarnings: warnings.length > 0
+    });
+    return {
+        snapshot: await saveConsolidationSnapshot(finalizedSnapshot),
+        completedSessions: completed,
+        wasAlreadyFinalized: false,
+        warnings
+    };
+}
+
 export async function getEffectiveUnit(templateId, itemCode) {
     const savedSetting = await getItemUnitSetting(templateId, itemCode);
     if (savedSetting?.effectiveUnit) return savedSetting.effectiveUnit;
@@ -1163,16 +1234,26 @@ function preserveSessionSnapshots(existingSession, candidate) {
 }
 
 function validateSessionTransition(existingSession, nextSession) {
+    if (!existingSession && nextSession.status !== "draft") {
+        throw new Error("Uma nova sessão precisa começar como rascunho.");
+    }
+
     if (existingSession?.status === "canceled" && nextSession.status !== "canceled") {
         throw new Error("Uma sessão cancelada não pode voltar para rascunho.");
     }
 
-    if (existingSession?.status === "draft" && !["draft", "in_progress", "canceled"].includes(nextSession.status)) {
-        throw new Error("O rascunho só pode ser iniciado ou cancelado nesta etapa.");
+    if (existingSession?.status === "completed" && nextSession.status !== "completed") {
+        throw new Error("Uma sessão finalizada não pode ser reaberta.");
     }
 
-    if (existingSession?.status === "in_progress" && nextSession.status !== "in_progress") {
-        throw new Error("Uma sessão em andamento ainda não pode ser finalizada ou cancelada.");
+    if (existingSession?.status === "draft"
+        && !["draft", "in_progress", "completed", "canceled"].includes(nextSession.status)) {
+        throw new Error("A transição do rascunho é inválida.");
+    }
+
+    if (existingSession?.status === "in_progress"
+        && !["in_progress", "completed"].includes(nextSession.status)) {
+        throw new Error("Uma sessão em andamento só pode continuar ou ser finalizada.");
     }
 }
 
@@ -1248,6 +1329,20 @@ export async function startLocationCountSession(sessionId) {
         ...session,
         status: "in_progress",
         startedAt: new Date().toISOString()
+    });
+}
+
+export async function completeLocationCountSession(sessionId, finishedAt = new Date().toISOString()) {
+    const session = await getLocationCountSession(sessionId);
+    if (!session) throw new Error("Sessão de contagem não encontrada.");
+    if (session.status === "completed") return session;
+    if (!["draft", "in_progress"].includes(session.status)) {
+        throw new Error("Somente uma sessão aberta pode ser finalizada.");
+    }
+    return saveLocationCountSession({
+        ...session,
+        status: "completed",
+        finishedAt
     });
 }
 

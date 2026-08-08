@@ -39,9 +39,13 @@ function getItemStatusLabel(status) {
 }
 
 function renderSnapshotCard(snapshot) {
+    const finalizationLabel = snapshot.finalizedAt ? "Finalizado" : "Salvo, não finalizado";
     return `
         <article class="consolidation-snapshot-card is-${escapeHtml(snapshot.status)}">
-            <span class="consolidation-snapshot-status">${escapeHtml(getStatusLabel(snapshot.status))}</span>
+            <div class="consolidation-snapshot-card-badges">
+                <span class="consolidation-snapshot-status">${escapeHtml(getStatusLabel(snapshot.status))}</span>
+                <span class="snapshot-finalization-badge ${snapshot.finalizedAt ? "is-finalized" : ""}">${escapeHtml(finalizationLabel)}</span>
+            </div>
             <h3>${escapeHtml(snapshot.label)}</h3>
             <p>${escapeHtml(snapshot.templateNameSnapshot)}</p>
             <small>Salvo em ${escapeHtml(formatDateTime(snapshot.createdAt))}</small>
@@ -73,6 +77,38 @@ export function showSnapshotShareFeedback(message, tone = "") {
     const feedback = getElement("snapshot-share-feedback");
     feedback.textContent = message;
     feedback.dataset.tone = tone;
+}
+
+export function showSnapshotFinalizationFeedback(message, tone = "") {
+    const feedback = getElement("snapshot-finalization-feedback");
+    feedback.textContent = message;
+    feedback.dataset.tone = tone;
+}
+
+function getFinalizationStatusText(snapshot) {
+    if (snapshot.finalizedAt) {
+        const warningText = snapshot.finalizationNotes ? ` Avisos: ${snapshot.finalizationNotes}` : "";
+        return `Finalizado em ${formatDateTime(snapshot.finalizedAt)} · ${snapshot.finalizedSessionIds.length} sessão(ões) fechada(s).${warningText}`;
+    }
+    if (snapshot.status === "invalid") {
+        return "Este snapshot é inválido e não pode finalizar uma contagem.";
+    }
+    return "Salvar esta foto não encerrou a contagem. Finalize somente quando o ciclo estiver concluído.";
+}
+
+function renderSnapshotFinalization(snapshot) {
+    const isFinalized = Boolean(snapshot.finalizedAt);
+    const isInvalid = snapshot.status === "invalid";
+    const badge = getElement("snapshot-finalization-badge");
+    const button = getElement("btn-finalize-consolidation-snapshot");
+    badge.textContent = isFinalized ? "Finalizado" : "Salvo, não finalizado";
+    badge.classList.toggle("is-finalized", isFinalized);
+    button.disabled = isFinalized || isInvalid;
+    button.title = isInvalid
+        ? "Um fechamento inválido não pode ser finalizado"
+        : isFinalized ? "Esta contagem já foi finalizada" : "Fechar as sessões deste ciclo";
+    getElement("snapshot-finalization-status").textContent = getFinalizationStatusText(snapshot);
+    showSnapshotFinalizationFeedback("");
 }
 
 function renderShareOptions(snapshot, options) {
@@ -228,6 +264,7 @@ export function renderConsolidationSnapshotDetail(snapshot, options = {}) {
     getElement("consolidation-snapshot-pending").innerHTML = snapshot.pendingEntries.length
         ? `<ul>${snapshot.pendingEntries.map(renderPending).join("")}</ul>`
         : '<p class="count-consolidation-empty">Nenhuma pendência foi congelada neste snapshot.</p>';
+    renderSnapshotFinalization(snapshot);
     getElement("btn-download-snapshot-pending-csv").disabled = snapshot.pendingEntries.length === 0;
     getElement("btn-download-snapshot-pending-csv").title = snapshot.pendingEntries.length
         ? "Baixar as pendências congeladas"
@@ -272,6 +309,7 @@ export function connectConsolidationSnapshotsEvents(handlers) {
     getElement("btn-share-snapshot-pending-csv").addEventListener("click", handlers.onSharePendingCsv);
     getElement("btn-open-snapshot-whatsapp").addEventListener("click", handlers.onOpenWhatsapp);
     getElement("btn-copy-snapshot-share-message").addEventListener("click", handlers.onCopyMessage);
+    getElement("btn-finalize-consolidation-snapshot").addEventListener("click", handlers.onFinalize);
     getElement("consolidation-snapshots-list").addEventListener("click", (event) => {
         const openButton = event.target.closest("[data-open-consolidation-snapshot]");
         const deleteButton = event.target.closest("[data-delete-consolidation-snapshot]");
