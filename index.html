@@ -403,6 +403,11 @@
                         Buscar por código, nome ou grupo
                         <input type="search" id="item-unit-search" autocomplete="off" placeholder="Digite para filtrar">
                     </label>
+                    <div id="item-unit-filters" class="item-unit-filters" aria-label="Filtrar perfis de unidade">
+                        <button type="button" data-item-unit-filter="all" aria-pressed="true">Todos</button>
+                        <button type="button" data-item-unit-filter="review" aria-pressed="false">Revisar</button>
+                        <button type="button" data-item-unit-filter="missing" aria-pressed="false">Sem perfil</button>
+                    </div>
                     <div id="item-unit-groups" class="item-unit-groups"></div>
                 </div>
             </section>

@@ -77,7 +77,7 @@ import {
     showItemLocationLinksFeedback
 } from "./itemLocationLinksUi.js";
 import {
-    applyManualItemUnitProfile,
+    buildControlledItemUnitProfile,
     resolveItemUnitSettings,
     summarizeItemUnitSettings
 } from "./itemUnitSettings.js";
@@ -1215,18 +1215,21 @@ async function analyzeItemUnits() {
 }
 
 async function saveManualItemUnit(itemCode, overrides) {
-    if (!String(overrides.baseUnit || "").trim() || !overrides.defaultInputUnit) {
-        showItemUnitSettingsFeedback("Informe a unidade base e a unidade padrão.", "warning");
-        return;
-    }
-
     try {
         const context = await loadItemUnitSettingsContext();
         const profile = context.settings.find((item) => item.itemCode === itemCode);
         if (!profile) throw new Error("Item não encontrado no template selecionado.");
-        await saveItemUnitSetting(applyManualItemUnitProfile(profile, overrides));
+        const result = buildControlledItemUnitProfile(profile, overrides);
+        if (!result.isValid) {
+            showItemUnitSettingsFeedback(result.error || "O perfil controlado está incompleto.", "warning");
+            return;
+        }
+        await saveItemUnitSetting(result.setting);
         await refreshItemUnitSettingsView();
-        showItemUnitSettingsFeedback("Perfil manual salvo neste aparelho.", "success");
+        const message = result.isResolved
+            ? "Perfil controlado salvo e marcado como resolvido neste aparelho."
+            : `Perfil salvo, mas continua pendente. ${result.warnings[0] || "Revise a configuração."}`;
+        showItemUnitSettingsFeedback(message, result.isResolved ? "success" : "warning");
     } catch (error) {
         showItemUnitSettingsFeedback(error.message || "Não foi possível salvar a unidade.", "error");
     }

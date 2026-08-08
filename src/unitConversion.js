@@ -85,6 +85,8 @@ export function findAllowedUnit(profile, rawUnitOrNormalizedUnit) {
     const exactMatch = allowedUnits.find((unit) => normalizeLabel(unit.label) === requestedLabel);
     if (exactMatch) return exactMatch;
     const normalizedUnit = normalizeUnitAlias(rawUnitOrNormalizedUnit);
+    const normalizedLabelMatch = allowedUnits.find((unit) => normalizeUnitAlias(unit.label) === normalizedUnit);
+    if (normalizedLabelMatch) return normalizedLabelMatch;
     return allowedUnits.find((unit) => normalizeUnitAlias(unit.normalizedUnit) === normalizedUnit) || null;
 }
 

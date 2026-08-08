@@ -1,6 +1,19 @@
 const allowedSources = new Set(["manual", "group_name", "item_name", "previous_entry", "unknown"]);
 const allowedConfidences = new Set(["high", "medium", "low", "unknown"]);
 
+export const CONTROLLED_ITEM_UNIT_CATALOG = Object.freeze([
+    { label: "un", kind: "unit" },
+    { label: "kg", kind: "mass" },
+    { label: "g", kind: "mass" },
+    { label: "l", kind: "volume" },
+    { label: "ml", kind: "volume" },
+    { label: "porção", kind: "portion" },
+    { label: "garrafa", kind: "bottle" },
+    { label: "caixa", kind: "package" },
+    { label: "pacote", kind: "package" },
+    { label: "fardo", kind: "package" }
+].map((unit) => Object.freeze(unit)));
+
 function normalizeText(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ");
 }
@@ -11,7 +24,7 @@ export function normalizeUnitAlias(value) {
         ["gr", "g"], ["grama", "g"], ["gramas", "g"],
         ["und", "un"], ["unidade", "un"], ["unidades", "un"],
         ["litro", "l"], ["litros", "l"],
-        ["garrafa", "un"], ["garrafas", "un"]
+        ["garrafas", "garrafa"]
     ]);
     return aliases.get(unit) || unit;
 }
@@ -62,6 +75,26 @@ function normalizeAllowedUnits(units) {
         if (normalizedUnit) normalizedById.set(normalizedUnit.id, normalizedUnit);
     });
     return [...normalizedById.values()];
+}
+
+function findControlledUnitDefinition(value) {
+    const label = normalizeText(value).toLocaleLowerCase("pt-BR");
+    return CONTROLLED_ITEM_UNIT_CATALOG.find((unit) => unit.label === label) || null;
+}
+
+export function getDeterministicFactorToBase(baseUnit, allowedUnit) {
+    const baseLabel = findControlledUnitDefinition(baseUnit)?.label;
+    const allowedLabel = findControlledUnitDefinition(allowedUnit)?.label;
+    if (!baseLabel || !allowedLabel) return null;
+    if (baseLabel === allowedLabel) return "1";
+
+    const deterministicFactors = new Map([
+        ["kg:g", "0.001"],
+        ["g:kg", "1000"],
+        ["l:ml", "0.001"],
+        ["ml:l", "1000"]
+    ]);
+    return deterministicFactors.get(`${baseLabel}:${allowedLabel}`) || null;
 }
 
 export function normalizeItemUnitSetting(setting, timestamp = new Date().toISOString()) {
@@ -127,6 +160,21 @@ export function validateItemUnitSetting(setting) {
     if (candidate) errors.push(...collectAllowedUnitErrors(candidate));
     if (candidate?.notes.length > 500) errors.push("As notas devem ter no máximo 500 caracteres.");
     return { isValid: errors.length === 0, error: errors[0] || "", errors, setting: errors.length ? null : candidate };
+}
+
+export function isItemUnitProfileComplete(setting) {
+    const profile = normalizeItemUnitSetting(setting);
+    if (!profile?.baseUnit || !profile.defaultInputUnit || profile.allowedUnits.length === 0) return false;
+    const hasBaseUnit = profile.allowedUnits.some((unit) => unit.normalizedUnit === profile.baseUnit);
+    const hasDefaultUnit = profile.allowedUnits.some((unit) => unit.label === profile.defaultInputUnit);
+    return hasBaseUnit && hasDefaultUnit;
+}
+
+export function doesItemUnitProfileNeedReview(setting) {
+    const profile = normalizeItemUnitSetting(setting);
+    if (!isItemUnitProfileComplete(profile)) return true;
+    if (profile.needsReview || profile.allowedUnits.some((unit) => unit.requiresReview)) return true;
+    return profile.allowedUnits.some((unit) => !unit.factorToBase);
 }
 
 function findTemplateItemContext(template, requestedItem) {
@@ -397,17 +445,90 @@ export function applyManualItemUnitProfile(profile, overrides) {
     });
 }
 
+function normalizeControlledAllowedUnitInputs(values) {
+    const unitsByLabel = new Map();
+    const unsupportedLabels = [];
+    (Array.isArray(values) ? values : []).forEach((value) => {
+        const input = typeof value === "string" ? { label: value } : value;
+        const definition = findControlledUnitDefinition(input?.label);
+        if (!definition) {
+            unsupportedLabels.push(normalizeText(input?.label));
+            return;
+        }
+        unitsByLabel.set(definition.label, { definition, factorToBase: input?.factorToBase });
+    });
+    return { units: [...unitsByLabel.values()], unsupportedLabels: unsupportedLabels.filter(Boolean) };
+}
+
+export function validateControlledItemUnitProfileInput(overrides = {}) {
+    const baseDefinition = findControlledUnitDefinition(overrides.baseUnit);
+    const defaultDefinition = findControlledUnitDefinition(overrides.defaultInputUnit);
+    const selection = normalizeControlledAllowedUnitInputs(overrides.allowedUnits);
+    const selectedLabels = new Set(selection.units.map((unit) => unit.definition.label));
+    const errors = [];
+
+    if (!baseDefinition) errors.push("Escolha uma unidade base do catálogo controlado.");
+    if (selection.units.length === 0) errors.push("Selecione ao menos uma unidade permitida.");
+    if (baseDefinition && !selectedLabels.has(baseDefinition.label)) {
+        errors.push("A unidade base precisa estar entre as unidades permitidas.");
+    }
+    if (!defaultDefinition || !selectedLabels.has(defaultDefinition.label)) {
+        errors.push("A unidade padrão precisa estar entre as unidades permitidas.");
+    }
+    if (selection.unsupportedLabels.length > 0) {
+        errors.push("O perfil contém unidade fora do catálogo controlado.");
+    }
+    return { isValid: errors.length === 0, error: errors[0] || "", errors, baseDefinition, selection };
+}
+
+function createControlledAllowedUnit(baseLabel, input) {
+    const { definition } = input;
+    const deterministicFactor = getDeterministicFactorToBase(baseLabel, definition.label);
+    const explicitFactor = normalizeFactor(normalizeText(input.factorToBase).replace(",", "."));
+    const factorToBase = deterministicFactor || explicitFactor;
+    return createAllowedUnit(definition.label, definition.label, definition.kind, factorToBase, {
+        requiresReview: !factorToBase,
+        notes: factorToBase ? "" : "Fator de conversão precisa ser informado manualmente."
+    });
+}
+
+export function buildControlledItemUnitProfile(profile, overrides = {}) {
+    const inputValidation = validateControlledItemUnitProfileInput(overrides);
+    if (!inputValidation.isValid) return { ...inputValidation, setting: null, isResolved: false, warnings: [] };
+
+    const baseLabel = inputValidation.baseDefinition.label;
+    const allowedUnits = inputValidation.selection.units.map((unit) => createControlledAllowedUnit(baseLabel, unit));
+    const hasMissingFactor = allowedUnits.some((unit) => !unit.factorToBase);
+    const setting = normalizeItemUnitSetting({
+        ...profile,
+        baseUnit: baseLabel,
+        defaultInputUnit: findControlledUnitDefinition(overrides.defaultInputUnit).label,
+        manualUnit: findControlledUnitDefinition(overrides.defaultInputUnit).label,
+        allowedUnits,
+        source: "manual",
+        confidence: "high",
+        needsReview: overrides.needsReview === true || hasMissingFactor
+    });
+    const settingValidation = validateItemUnitSetting(setting);
+    const warnings = hasMissingFactor ? ["Há unidade permitida sem fator; o perfil continuará pendente."] : [];
+    return {
+        ...settingValidation,
+        setting: settingValidation.setting,
+        isResolved: settingValidation.isValid && !setting.needsReview,
+        warnings
+    };
+}
+
 export function summarizeItemUnitSettings(template, settings = []) {
     const itemCount = (template?.groups || []).reduce((total, group) => total + (group.items || []).length, 0);
     const profiles = settings.filter((setting) => setting.templateId === template?.id);
-    const completeProfiles = profiles.filter((profile) => (
-        profile.baseUnit && profile.defaultInputUnit && profile.allowedUnits.length > 0
-    ));
+    const completeProfiles = profiles.filter((profile) => !doesItemUnitProfileNeedReview(profile));
+    const profilesWithoutStructure = profiles.filter((profile) => !isItemUnitProfileComplete(profile));
     return {
         itemCount,
         completeProfileCount: completeProfiles.length,
-        needsReviewCount: profiles.filter((profile) => profile.needsReview).length,
-        withoutProfileCount: itemCount - completeProfiles.length,
+        needsReviewCount: profiles.filter(doesItemUnitProfileNeedReview).length,
+        withoutProfileCount: itemCount - profiles.length + profilesWithoutStructure.length,
         ambiguousPackageCount: profiles.filter((profile) => profile.allowedUnits.some((unit) => (
             unit.kind === "package" && unit.requiresReview
         ))).length,
