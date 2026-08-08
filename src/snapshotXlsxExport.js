@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import XLSX from "xlsx-js-style";
 
 const firstAreaColumnIndex = 6;
 const totalColumnIndex = 8;
@@ -464,8 +464,22 @@ function inspectUnmatchedSheetItems(workbookAnalysis, snapshotItemsByCode, issue
     return unmatchedCount;
 }
 
+function buildBorderAddresses(workbookAnalysis) {
+    const addresses = new Set();
+    for (const group of workbookAnalysis?.groups || []) {
+        const columns = [...Object.values(group.areaColumns)];
+        if (Number.isInteger(group.totalColumn)) columns.push(group.totalColumn);
+        const rows = [group.rowNumber, ...group.items.map((item) => item.rowNumber)];
+        rows.forEach((rowNumber) => columns.forEach((columnIndex) => {
+            addresses.add(XLSX.utils.encode_cell({ r: rowNumber - 1, c: columnIndex }));
+        }));
+    }
+    return [...addresses];
+}
+
 function summarizePlan(snapshot, workbookAnalysis, operations, issues, counts = {}) {
     const { blockers, warnings } = splitIssues(issues);
+    const borderAddresses = buildBorderAddresses(workbookAnalysis);
     return {
         snapshotId: normalizeText(snapshot?.id),
         sheetName: workbookAnalysis?.sheetName || "",
@@ -475,6 +489,8 @@ function summarizePlan(snapshot, workbookAnalysis, operations, issues, counts = 
         filledCellCount: operations.filter((operation) => operation.action === "write").length,
         emptyCellCount: operations.filter((operation) => operation.action === "clear").length,
         groupWithoutTotalCount: (workbookAnalysis?.groups || []).filter((group) => group.totalColumn === null).length,
+        borderCellCount: borderAddresses.length,
+        borderAddresses,
         operations,
         issues,
         blockers,
@@ -532,12 +548,38 @@ function applyCellOperation(worksheet, operation) {
     worksheet[operation.address] = filledCell;
 }
 
+function createThinBlackBorder() {
+    const createSide = () => ({ style: "thin", color: { rgb: "000000" } });
+    return {
+        top: createSide(),
+        bottom: createSide(),
+        left: createSide(),
+        right: createSide()
+    };
+}
+
+function applyMinimumBorder(worksheet, address) {
+    const existingCell = worksheet[address] || { t: "n", v: null };
+    const needsSerializableBlank = existingCell.t === "z" || (existingCell.v === undefined && !existingCell.f);
+    const cell = needsSerializableBlank ? { ...existingCell, t: "n", v: null } : { ...existingCell };
+    const existingStyle = cell.s && typeof cell.s === "object" ? cell.s : {};
+    const existingBorder = existingStyle.border && typeof existingStyle.border === "object"
+        ? existingStyle.border
+        : {};
+    cell.s = {
+        ...existingStyle,
+        border: { ...existingBorder, ...createThinBlackBorder() }
+    };
+    worksheet[address] = cell;
+}
+
 export function applySnapshotToWorkbook(workbook, snapshot, plan) {
     if (!plan?.canExport) throw new Error("O plano possui bloqueios e não pode ser aplicado.");
     if (normalizeText(snapshot?.id) !== plan.snapshotId) throw new Error("O plano pertence a outro fechamento.");
     const worksheet = workbook?.Sheets?.[plan.sheetName];
     if (!worksheet) throw new Error("A aba operacional do plano não está disponível.");
     plan.operations.forEach((operation) => applyCellOperation(worksheet, operation));
+    plan.borderAddresses.forEach((address) => applyMinimumBorder(worksheet, address));
     return workbook;
 }
 

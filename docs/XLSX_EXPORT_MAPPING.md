@@ -128,6 +128,12 @@ São avisos que exigem decisão antes da exportação:
 - A leitura disponível não comprova preservação completa de estilos em uma escrita futura.
 - A biblioteca pode não preservar todos os detalhes visuais ou de impressão do arquivo original.
 
+## Formatação mínima do XLSX piloto
+
+O fluxo XLSX usa `xlsx-js-style` somente no módulo carregado sob demanda para aplicar bordas finas pretas aos cabeçalhos de área, às células de quantidade e ao `TOTAL` declarado em cada grupo. Estilos já disponíveis no objeto da célula são mantidos; apenas as quatro laterais de `border` são definidas pelo piloto.
+
+Essa formatação básica melhora a leitura das tabelas, mas não garante preservação perfeita de todos os estilos, configurações de impressão ou particularidades visuais do arquivo modelo.
+
 ## Decisões pendentes
 
 1. Confirmar a unidade operacional esperada para cada item.

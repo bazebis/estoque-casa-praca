@@ -12,5 +12,8 @@
   "devDependencies": {
     "vite": "^7.0.0",
     "xlsx": "^0.18.5"
+  },
+  "dependencies": {
+    "xlsx-js-style": "^1.2.0"
   }
 }
