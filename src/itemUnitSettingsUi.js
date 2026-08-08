@@ -227,10 +227,6 @@ function renderControlledEditor(setting) {
             <label>Unidade padrão ao contar
                 <select name="defaultInputUnit" data-controlled-default required>${renderDefaultUnitOptions(setting)}</select>
             </label>
-            <label class="item-unit-review-field">
-                <input type="checkbox" name="needsReview" ${setting?.needsReview ? "checked" : ""}>
-                Manter marcado para revisão
-            </label>
             <p class="item-unit-form-status" data-item-unit-form-status aria-live="polite"></p>
         </fieldset>
     `;
@@ -524,16 +520,12 @@ function updateFormReviewState(form) {
         const factorInput = form.querySelector(`[data-unit-factor="${checkbox.value}"]`);
         return !isPositiveFactor(factorInput.value);
     });
-    const reviewInput = form.elements.needsReview;
     const status = form.querySelector("[data-item-unit-form-status]");
     if (missingFactor) {
-        reviewInput.checked = true;
-        reviewInput.disabled = true;
         status.textContent = "Há unidade sem equivalência. O perfil poderá ser salvo, mas continuará pendente.";
         status.dataset.tone = "warning";
         return;
     }
-    reviewInput.disabled = false;
     status.textContent = selectedCheckboxes.length ? "Todas as equivalências selecionadas estão definidas." : "Selecione as unidades permitidas.";
     status.dataset.tone = selectedCheckboxes.length ? "success" : "warning";
 }
@@ -568,7 +560,8 @@ function collectControlledFormValues(form) {
         baseUnit: form.elements.baseUnit.value,
         defaultInputUnit: form.elements.defaultInputUnit.value,
         allowedUnits,
-        needsReview: form.elements.needsReview.checked
+        // Revisão manual herdada não deve impedir que uma configuração completa seja resolvida.
+        needsReview: false
     };
 }
 
