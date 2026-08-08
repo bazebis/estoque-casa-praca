@@ -2,6 +2,7 @@ import XLSX from "xlsx-js-style";
 
 const firstAreaColumnIndex = 6;
 const totalColumnIndex = 8;
+const quantityGridColumnIndexes = [6, 7, 8];
 const xlsxMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 const canonicalAreas = new Map([
@@ -159,7 +160,36 @@ function findDuplicateCodes(items) {
     return [...counts.entries()].filter(([, count]) => count > 1).map(([code]) => code);
 }
 
-function validateGroupStructure(group) {
+function validateMissingTotal(group, worksheet) {
+    if (group.totalColumn !== null) return [];
+    const context = { groupRowNumber: group.rowNumber };
+    const areaCount = Object.keys(group.areaColumns).length;
+    if (areaCount !== 1) {
+        return [createIssue(
+            "group_without_total",
+            "blocker",
+            `O grupo da linha ${group.rowNumber} não declara TOTAL e não possui uma única área segura.`,
+            context
+        )];
+    }
+    const totalHeaderCell = getCell(worksheet, group.rowNumber - 1, totalColumnIndex);
+    if (totalHeaderCell?.f || getCellText(worksheet, group.rowNumber - 1, totalColumnIndex)) {
+        return [createIssue(
+            "total_column_occupied",
+            "blocker",
+            `A coluna I do grupo da linha ${group.rowNumber} está ocupada e não pode ser padronizada como TOTAL.`,
+            context
+        )];
+    }
+    return [createIssue(
+        "total_column_standardized",
+        "warning",
+        `A exportação preencherá TOTAL em I no grupo da linha ${group.rowNumber}.`,
+        context
+    )];
+}
+
+function validateGroupStructure(group, worksheet) {
     const issues = [];
     const areaCount = Object.keys(group.areaColumns).length;
     if (!areaCount) {
@@ -177,18 +207,13 @@ function validateGroupStructure(group) {
             groupRowNumber: group.rowNumber
         }));
     }
-    if (group.totalColumn === null) {
-        const severity = areaCount === 1 ? "warning" : "blocker";
-        issues.push(createIssue("group_without_total", severity, `O grupo da linha ${group.rowNumber} não declara TOTAL.`, {
-            groupRowNumber: group.rowNumber
-        }));
-    }
+    appendUniqueIssues(issues, validateMissingTotal(group, worksheet));
     return issues;
 }
 
 function validateQuantityFormulas(analysis) {
     return analysis.items.flatMap((item) => {
-        const quantityColumns = [...Object.values(item.areaColumns), item.totalColumn].filter(Number.isInteger);
+        const quantityColumns = [...new Set([...Object.values(item.areaColumns), totalColumnIndex])];
         return quantityColumns.flatMap((columnIndex) => {
             const cell = getCell(analysis.worksheet, item.rowNumber - 1, columnIndex);
             if (!cell?.f) return [];
@@ -217,7 +242,7 @@ export function analyzeWorkbookForExport(workbook) {
 
     const analysis = selection.candidate;
     const issues = [...analysis.issues];
-    analysis.groups.forEach((group) => appendUniqueIssues(issues, validateGroupStructure(group)));
+    analysis.groups.forEach((group) => appendUniqueIssues(issues, validateGroupStructure(group, analysis.worksheet)));
     const duplicateCodes = findDuplicateCodes(analysis.items);
     if (duplicateCodes.length) {
         issues.push(createIssue("duplicate_sheet_codes", "blocker", "A planilha possui códigos de item duplicados."));
@@ -403,11 +428,13 @@ function validateTotalWithoutColumn(snapshotItem, sheetItem, cellsByArea, issues
 }
 
 function planTotalCell(snapshotItem, sheetItem, sheetName, issues) {
-    if (!Number.isInteger(sheetItem.totalColumn)) return [];
     const total = snapshotItem.total || {};
+    const exportTotalColumn = Number.isInteger(sheetItem.totalColumn)
+        ? sheetItem.totalColumn
+        : totalColumnIndex;
     validateUnitConsistency(snapshotItem, total, issues);
     if (!hasQuantity(total.convertedQuantityDecimal)) {
-        return [createCellOperation(sheetName, sheetItem, sheetItem.totalColumn, "total")];
+        return [createCellOperation(sheetName, sheetItem, exportTotalColumn, "total")];
     }
     const numericValue = parseNumericQuantity(total.convertedQuantityDecimal);
     if (numericValue === null) {
@@ -416,11 +443,11 @@ function planTotalCell(snapshotItem, sheetItem, sheetName, issues) {
         }));
         return [];
     }
-    return [createCellOperation(sheetName, sheetItem, sheetItem.totalColumn, "total", numericValue)];
+    return [createCellOperation(sheetName, sheetItem, exportTotalColumn, "total", numericValue)];
 }
 
 function hasExistingQuantity(worksheet, sheetItem) {
-    const columns = [...Object.values(sheetItem.areaColumns), sheetItem.totalColumn].filter(Number.isInteger);
+    const columns = [...new Set([...Object.values(sheetItem.areaColumns), totalColumnIndex])];
     return columns.some((columnIndex) => normalizeText(getCell(worksheet, sheetItem.rowNumber - 1, columnIndex)?.v));
 }
 
@@ -467,19 +494,38 @@ function inspectUnmatchedSheetItems(workbookAnalysis, snapshotItemsByCode, issue
 function buildBorderAddresses(workbookAnalysis) {
     const addresses = new Set();
     for (const group of workbookAnalysis?.groups || []) {
-        const columns = [...Object.values(group.areaColumns)];
-        if (Number.isInteger(group.totalColumn)) columns.push(group.totalColumn);
         const rows = [group.rowNumber, ...group.items.map((item) => item.rowNumber)];
-        rows.forEach((rowNumber) => columns.forEach((columnIndex) => {
+        rows.forEach((rowNumber) => quantityGridColumnIndexes.forEach((columnIndex) => {
             addresses.add(XLSX.utils.encode_cell({ r: rowNumber - 1, c: columnIndex }));
         }));
     }
     return [...addresses];
 }
 
+function buildTotalBorderAddresses(workbookAnalysis) {
+    return (workbookAnalysis?.groups || []).flatMap((group) => {
+        const rows = [group.rowNumber, ...group.items.map((item) => item.rowNumber)];
+        return rows.map((rowNumber) => XLSX.utils.encode_cell({
+            r: rowNumber - 1,
+            c: totalColumnIndex
+        }));
+    });
+}
+
+function buildTotalHeaderOperations(workbookAnalysis) {
+    return (workbookAnalysis?.groups || [])
+        .filter((group) => group.totalColumn === null)
+        .map((group) => ({
+            address: XLSX.utils.encode_cell({ r: group.rowNumber - 1, c: totalColumnIndex }),
+            value: "TOTAL"
+        }));
+}
+
 function summarizePlan(snapshot, workbookAnalysis, operations, issues, counts = {}) {
     const { blockers, warnings } = splitIssues(issues);
     const borderAddresses = buildBorderAddresses(workbookAnalysis);
+    const totalBorderAddresses = buildTotalBorderAddresses(workbookAnalysis);
+    const totalHeaderOperations = buildTotalHeaderOperations(workbookAnalysis);
     return {
         snapshotId: normalizeText(snapshot?.id),
         sheetName: workbookAnalysis?.sheetName || "",
@@ -491,6 +537,8 @@ function summarizePlan(snapshot, workbookAnalysis, operations, issues, counts = 
         groupWithoutTotalCount: (workbookAnalysis?.groups || []).filter((group) => group.totalColumn === null).length,
         borderCellCount: borderAddresses.length,
         borderAddresses,
+        totalBorderAddresses,
+        totalHeaderOperations,
         operations,
         issues,
         blockers,
@@ -548,8 +596,8 @@ function applyCellOperation(worksheet, operation) {
     worksheet[operation.address] = filledCell;
 }
 
-function createThinBlackBorder() {
-    const createSide = () => ({ style: "thin", color: { rgb: "000000" } });
+function createBlackBorder(style) {
+    const createSide = () => ({ style, color: { rgb: "000000" } });
     return {
         top: createSide(),
         bottom: createSide(),
@@ -558,7 +606,17 @@ function createThinBlackBorder() {
     };
 }
 
-function applyMinimumBorder(worksheet, address) {
+function includeAddressInWorksheetRange(worksheet, address) {
+    const addressRange = XLSX.utils.decode_range(`${address}:${address}`);
+    const currentRange = XLSX.utils.decode_range(worksheet["!ref"] || `${address}:${address}`);
+    currentRange.s.r = Math.min(currentRange.s.r, addressRange.s.r);
+    currentRange.s.c = Math.min(currentRange.s.c, addressRange.s.c);
+    currentRange.e.r = Math.max(currentRange.e.r, addressRange.e.r);
+    currentRange.e.c = Math.max(currentRange.e.c, addressRange.e.c);
+    worksheet["!ref"] = XLSX.utils.encode_range(currentRange);
+}
+
+function applyGridBorder(worksheet, address, borderStyle) {
     const existingCell = worksheet[address] || { t: "n", v: null };
     const needsSerializableBlank = existingCell.t === "z" || (existingCell.v === undefined && !existingCell.f);
     const cell = needsSerializableBlank ? { ...existingCell, t: "n", v: null } : { ...existingCell };
@@ -568,9 +626,19 @@ function applyMinimumBorder(worksheet, address) {
         : {};
     cell.s = {
         ...existingStyle,
-        border: { ...existingBorder, ...createThinBlackBorder() }
+        border: { ...existingBorder, ...createBlackBorder(borderStyle) }
     };
     worksheet[address] = cell;
+    includeAddressInWorksheetRange(worksheet, address);
+}
+
+function applyTotalHeaderOperation(worksheet, operation) {
+    const existingCell = worksheet[operation.address] || {};
+    const cell = { ...existingCell, t: "s", v: operation.value };
+    delete cell.w;
+    delete cell.f;
+    worksheet[operation.address] = cell;
+    includeAddressInWorksheetRange(worksheet, operation.address);
 }
 
 export function applySnapshotToWorkbook(workbook, snapshot, plan) {
@@ -579,7 +647,11 @@ export function applySnapshotToWorkbook(workbook, snapshot, plan) {
     const worksheet = workbook?.Sheets?.[plan.sheetName];
     if (!worksheet) throw new Error("A aba operacional do plano não está disponível.");
     plan.operations.forEach((operation) => applyCellOperation(worksheet, operation));
-    plan.borderAddresses.forEach((address) => applyMinimumBorder(worksheet, address));
+    plan.totalHeaderOperations.forEach((operation) => applyTotalHeaderOperation(worksheet, operation));
+    const totalAddresses = new Set(plan.totalBorderAddresses);
+    plan.borderAddresses.forEach((address) => {
+        applyGridBorder(worksheet, address, totalAddresses.has(address) ? "medium" : "thin");
+    });
     return workbook;
 }
 

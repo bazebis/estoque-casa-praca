@@ -26,7 +26,7 @@ A estrutura confirmada possui uma aba operacional, uma linha introdutória de t�
 | A | Código nas linhas de item. |
 | B | Grupo na linha de cabeçalho; nome nas linhas de item. |
 | G:H | Quantidades por área, com significado definido pelo cabeçalho de cada grupo. |
-| I | Total, somente quando declarado no cabeçalho do grupo. |
+| I | Total declarado pelo modelo ou padronizado visualmente na cópia exportada. |
 
 As colunas de área são contextuais. O exportador futuro não pode assumir uma coluna global por área: ele deve ler cada cabeçalho de grupo e aplicar o mapa encontrado somente às linhas daquele bloco.
 
@@ -62,8 +62,8 @@ Variações de caixa, espaços e acentuação podem ser normalizadas para compar
 
 - O valor de uma área vem da célula correspondente em `item.areas`.
 - O destino é descoberto pelo cabeçalho do grupo, normalmente em `G` ou `H`.
-- O total vem de `item.total` e só pode ir para `I` quando o grupo declara `TOTAL`.
-- Sem coluna `TOTAL`, o grupo de uma única área só é aceito quando o total congelado coincide com essa área.
+- O total vem de `item.total` e é escrito em `I`, inclusive quando a cópia exportada precisa padronizar um cabeçalho ausente.
+- Sem cabeçalho `TOTAL` no modelo, o grupo só é aceito quando possui uma única área, `I` está livre e o total congelado coincide com essa área.
 - Uma área sem coluna naquele grupo não pode ser redirecionada para outra área.
 - Antes de aceitar o total, o plano deve confirmar que nenhuma quantidade ficou fora das colunas representáveis pelo grupo.
 
@@ -115,7 +115,7 @@ São avisos que exigem decisão antes da exportação:
 
 - linha vazia de quantidade sem item correspondente no snapshot;
 - nome ou grupo diferente para o mesmo código;
-- grupo sem coluna de total;
+- grupo de uma única área cujo cabeçalho `TOTAL` será padronizado em `I` na cópia;
 - célula de data ainda não definida;
 - diferenças de apresentação que a biblioteca não consiga preservar com fidelidade.
 
@@ -124,15 +124,21 @@ São avisos que exigem decisão antes da exportação:
 - Não há coluna de unidade, status ou pendência no layout atual.
 - O total não é calculado por fórmula no template inspecionado.
 - Nem todos os grupos declaram as mesmas áreas.
-- Pelo menos um grupo não declara coluna de total; o piloto permite esse caso apenas quando existe uma única área representada e registra aviso.
+- Um grupo sem cabeçalho de total só pode ser padronizado quando possui uma única área representada, `I` está livre e os valores são consistentes.
 - A leitura disponível não comprova preservação completa de estilos em uma escrita futura.
 - A biblioteca pode não preservar todos os detalhes visuais ou de impressão do arquivo original.
 
 ## Formatação mínima do XLSX piloto
 
-O fluxo XLSX usa `xlsx-js-style` somente no módulo carregado sob demanda para aplicar bordas finas pretas aos cabeçalhos de área, às células de quantidade e ao `TOTAL` declarado em cada grupo. Estilos já disponíveis no objeto da célula são mantidos; apenas as quatro laterais de `border` são definidas pelo piloto.
+O fluxo XLSX usa `xlsx-js-style` somente no módulo carregado sob demanda. Estilos já disponíveis no objeto da célula são mantidos; apenas as quatro laterais de `border` são definidas pelo piloto.
 
 Essa formatação básica melhora a leitura das tabelas, mas não garante preservação perfeita de todos os estilos, configurações de impressão ou particularidades visuais do arquivo modelo.
+
+## Padronização visual da grade
+
+A cópia exportada força uma grade visual de três colunas de quantidade (`G:H:I`) em todos os blocos. As colunas de área recebem borda fina preta, enquanto `I` é padronizada como `TOTAL` e recebe borda média preta nos cabeçalhos e nas linhas de item.
+
+Quando o modelo não declara `TOTAL`, o piloto preenche esse cabeçalho somente na cópia em memória e escreve em `I` o total congelado do snapshot, desde que as validações de segurança sejam atendidas. Essa correção visual não altera o arquivo modelo selecionado pelo usuário nem modifica códigos, nomes, grupos, linhas ou colunas.
 
 ## Decisões pendentes
 
