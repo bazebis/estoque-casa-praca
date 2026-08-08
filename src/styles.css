@@ -1813,6 +1813,18 @@ textarea:focus-visible {
 .item-unit-editor-feedback {
     min-height: 1.25em;
     margin: 0;
+    color: var(--color-text-muted);
+}
+
+.item-unit-editor-feedback[data-tone="success"] {
+    color: #a7e3ae;
+}
+
+.item-unit-editor-feedback[data-tone="warning"] {
+    color: #ffe49c;
+}
+
+.item-unit-editor-feedback[data-tone="error"] {
     color: #ffb3b3;
 }
 

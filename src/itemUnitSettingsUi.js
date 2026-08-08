@@ -650,18 +650,24 @@ function connectItemUnitEditorFieldEvents() {
     });
 }
 
+function copyItemUnitFeedbackToEditor(form) {
+    const globalFeedback = getElement("item-unit-feedback");
+    const editorFeedback = form.querySelector("[data-item-unit-editor-feedback]");
+    editorFeedback.textContent = globalFeedback.textContent;
+    editorFeedback.dataset.tone = globalFeedback.dataset.tone || "";
+}
+
 function connectItemUnitEditorSubmitEvent(handlers) {
     getElement("item-unit-editor-surface").addEventListener("submit", async (event) => {
         const form = event.target.closest("[data-item-unit-form]");
         if (!form) return;
         event.preventDefault();
         const didSave = await handlers.onSaveManual(form.dataset.itemCode, collectControlledFormValues(form));
+        copyItemUnitFeedbackToEditor(form);
         if (!didSave) {
-            form.querySelector("[data-item-unit-editor-feedback]").textContent = getElement("item-unit-feedback").textContent;
             updateEditorDirtyIndicator();
             return;
         }
-        form.querySelector("[data-item-unit-editor-feedback]").textContent = getElement("item-unit-feedback").textContent;
         rememberEditorState();
     });
 }
