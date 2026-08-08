@@ -1,7 +1,12 @@
 import {
     CONTROLLED_ITEM_UNIT_CATALOG,
+    CONTROLLED_UNIT_VARIANT_FAMILIES,
+    buildControlledUnitVariant,
     doesItemUnitProfileNeedReview,
+    formatUnitVariantLabel,
+    getAllowedUnitVariant,
     getDeterministicFactorToBase,
+    getUnitVariantSemanticKey,
     isItemUnitProfileComplete
 } from "./itemUnitSettings.js";
 
@@ -14,6 +19,10 @@ let editorInitialValues = "";
 let editorReturnFocus = null;
 let pendingDiscardAction = null;
 let pendingDiscardCancellation = null;
+let variantDraftSequence = 0;
+
+const variableFamilyNames = new Set(CONTROLLED_UNIT_VARIANT_FAMILIES.map((definition) => definition.family));
+const simpleControlledUnits = CONTROLLED_ITEM_UNIT_CATALOG.filter((unit) => !variableFamilyNames.has(unit.label));
 
 const sourceLabels = {
     manual: "manual",
@@ -167,6 +176,73 @@ function renderControlledUnitOption(setting, definition) {
     `;
 }
 
+function getSettingUnitVariants(setting) {
+    return (setting?.allowedUnits || []).map(getAllowedUnitVariant).filter(Boolean);
+}
+
+function renderVariableFamilyOption(setting, definition) {
+    const hasVariant = getSettingUnitVariants(setting).some((variant) => variant.variantFamily === definition.family);
+    const hasLegacyFamily = Boolean(findCurrentControlledUnit(setting, definition.family));
+    return `
+        <label class="item-unit-chip" data-unit-family-chip="${escapeHtml(definition.family)}">
+            <input type="checkbox" value="${escapeHtml(definition.family)}" data-unit-family
+                ${hasVariant || hasLegacyFamily ? "checked" : ""}>
+            <span>${escapeHtml(definition.family)}</span>
+        </label>
+    `;
+}
+
+function renderVariantUnitControl(variant, definition) {
+    if (definition.variantUnits.length === 1) {
+        return `<span class="item-unit-variant-unit">${escapeHtml(definition.variantUnits[0])}</span>`;
+    }
+    return `
+        <select data-variant-unit aria-label="Unidade da apresentação">
+            ${definition.variantUnits.map((unit) => `
+                <option value="${escapeHtml(unit)}" ${unit === variant.variantUnit ? "selected" : ""}>${escapeHtml(unit)}</option>
+            `).join("")}
+        </select>
+    `;
+}
+
+function renderUnitVariantRow(variant, definition) {
+    const draftId = variant.id || `variant-draft-${variantDraftSequence += 1}`;
+    const legacyLabels = escapeHtml(JSON.stringify(variant.legacyLabels || []));
+    return `
+        <div class="item-unit-variant-row" data-unit-variant-row data-variant-id="${escapeHtml(draftId)}"
+            data-variant-family="${escapeHtml(definition.family)}" data-legacy-labels="${legacyLabels}">
+            <input type="text" inputmode="decimal" autocomplete="off" data-variant-value
+                aria-label="Apresentação de ${escapeHtml(definition.family)}" value="${escapeHtml(variant.variantValue || "")}" placeholder="Quantidade">
+            ${renderVariantUnitControl(variant, definition)}
+            <button type="button" class="item-unit-variant-remove" data-remove-unit-variant>Remover</button>
+            <small data-unit-variant-equivalence></small>
+        </div>
+    `;
+}
+
+function renderUnitVariantFamily(setting, definition) {
+    const variants = getSettingUnitVariants(setting).filter((variant) => variant.variantFamily === definition.family);
+    const hasLegacyFamily = Boolean(findCurrentControlledUnit(setting, definition.family));
+    const isActive = variants.length > 0 || hasLegacyFamily;
+    const editableVariants = variants.length > 0 ? variants : (hasLegacyFamily ? [{
+        variantFamily: definition.family,
+        variantValue: "",
+        variantUnit: definition.variantUnits[0],
+        legacyLabels: [definition.family]
+    }] : []);
+    return `
+        <section class="item-unit-variant-family" data-unit-variant-family="${escapeHtml(definition.family)}" ${isActive ? "" : "hidden"}>
+            <header><strong>${escapeHtml(definition.family === "porção" ? "Porções" : `${definition.family}s`)}</strong></header>
+            <div class="item-unit-variant-list" data-unit-variant-list>
+                ${editableVariants.map((variant) => renderUnitVariantRow(variant, definition)).join("")}
+            </div>
+            <button type="button" class="item-unit-variant-add" data-add-unit-variant="${escapeHtml(definition.family)}">
+                + Adicionar ${escapeHtml(definition.family)}
+            </button>
+        </section>
+    `;
+}
+
 function renderControlledEquivalence(setting, baseLabel, definition) {
     const currentUnit = findCurrentControlledUnit(setting, definition.label);
     const equivalence = buildUnitEquivalenceView(baseLabel, definition.label, currentUnit?.factorToBase);
@@ -184,10 +260,14 @@ function renderControlledEquivalence(setting, baseLabel, definition) {
 }
 
 function renderDefaultUnitOptions(setting) {
-    const selectedUnits = CONTROLLED_ITEM_UNIT_CATALOG.filter((unit) => findCurrentControlledUnit(setting, unit.label));
-    const options = selectedUnits.map((unit) => `
-        <option value="${escapeHtml(unit.label)}" ${unit.label === setting?.defaultInputUnit ? "selected" : ""}>
-            ${escapeHtml(unit.label)}
+    const selectedUnits = simpleControlledUnits.filter((unit) => findCurrentControlledUnit(setting, unit.label));
+    const variants = getSettingUnitVariants(setting);
+    const variantDefault = variants.find((variant) => variant.legacyLabels.includes(setting?.defaultInputUnit));
+    const selectedLabel = variantDefault?.label || setting?.defaultInputUnit;
+    const labels = [...selectedUnits.map((unit) => unit.label), ...variants.map((variant) => variant.label)];
+    const options = labels.map((label) => `
+        <option value="${escapeHtml(label)}" ${label === selectedLabel ? "selected" : ""}>
+            ${escapeHtml(label)}
         </option>
     `);
     return ['<option value="">Escolha entre as permitidas</option>', ...options].join("");
@@ -195,7 +275,9 @@ function renderDefaultUnitOptions(setting) {
 
 function renderLegacyUnitNotice(setting) {
     const controlledLabels = new Set(CONTROLLED_ITEM_UNIT_CATALOG.map((unit) => unit.label));
-    const legacyLabels = (setting?.allowedUnits || []).filter((unit) => !controlledLabels.has(unit.label)).map((unit) => unit.label);
+    const legacyLabels = (setting?.allowedUnits || []).filter((unit) => (
+        !controlledLabels.has(unit.label) && !getAllowedUnitVariant(unit)
+    )).map((unit) => unit.label);
     if (legacyLabels.length === 0) return "";
     return `
         <p class="item-unit-legacy-notice">
@@ -217,12 +299,16 @@ function renderControlledEditor(setting) {
             <div class="item-unit-controlled-units">
                 <span>Unidades permitidas</span>
                 <div class="item-unit-chips">
-                    ${CONTROLLED_ITEM_UNIT_CATALOG.map((unit) => renderControlledUnitOption(setting, unit)).join("")}
+                    ${simpleControlledUnits.map((unit) => renderControlledUnitOption(setting, unit)).join("")}
+                    ${CONTROLLED_UNIT_VARIANT_FAMILIES.map((definition) => renderVariableFamilyOption(setting, definition)).join("")}
                 </div>
+            </div>
+            <div class="item-unit-variant-families">
+                ${CONTROLLED_UNIT_VARIANT_FAMILIES.map((definition) => renderUnitVariantFamily(setting, definition)).join("")}
             </div>
             <div class="item-unit-equivalences">
                 <span>Equivalências</span>
-                ${CONTROLLED_ITEM_UNIT_CATALOG.map((unit) => renderControlledEquivalence(setting, baseLabel, unit)).join("")}
+                ${simpleControlledUnits.map((unit) => renderControlledEquivalence(setting, baseLabel, unit)).join("")}
             </div>
             <label>Unidade padrão ao contar
                 <select name="defaultInputUnit" data-controlled-default required>${renderDefaultUnitOptions(setting)}</select>
@@ -479,10 +565,40 @@ function findControlledCheckbox(form, label) {
     return [...form.querySelectorAll("[data-controlled-unit]")].find((input) => input.value === label) || null;
 }
 
+function parseVariantLegacyLabels(row) {
+    try {
+        const labels = JSON.parse(row.dataset.legacyLabels || "[]");
+        return Array.isArray(labels) ? labels : [];
+    } catch {
+        return [];
+    }
+}
+
+function collectVariantRowValue(row) {
+    const fixedUnit = CONTROLLED_UNIT_VARIANT_FAMILIES.find(
+        (definition) => definition.family === row.dataset.variantFamily
+    )?.variantUnits[0];
+    return {
+        variantFamily: row.dataset.variantFamily,
+        variantValue: row.querySelector("[data-variant-value]").value,
+        variantUnit: row.querySelector("[data-variant-unit]")?.value || fixedUnit || "",
+        legacyLabels: parseVariantLegacyLabels(row)
+    };
+}
+
+function getVariantLabels(form) {
+    return [...form.querySelectorAll("[data-unit-variant-row]")]
+        .map((row) => formatUnitVariantLabel(collectVariantRowValue(row)))
+        .filter(Boolean);
+}
+
 function updateDefaultOptions(form) {
     const select = form.querySelector("[data-controlled-default]");
     const previousValue = select.value;
-    const selectedLabels = [...form.querySelectorAll("[data-controlled-unit]:checked")].map((input) => input.value);
+    const selectedLabels = [
+        ...form.querySelectorAll("[data-controlled-unit]:checked")
+    ].map((input) => input.value);
+    selectedLabels.push(...getVariantLabels(form));
     select.innerHTML = "";
     appendOption(select, "", "Escolha entre as permitidas");
     selectedLabels.forEach((label) => appendOption(select, label, label, label === previousValue));
@@ -514,6 +630,29 @@ function updateFactorField(form, checkbox) {
     help.textContent = equivalence.help;
 }
 
+function updateVariantRow(form, row) {
+    const result = buildControlledUnitVariant(form.elements.baseUnit.value, collectVariantRowValue(row));
+    const equivalence = row.querySelector("[data-unit-variant-equivalence]");
+    if (!result.isValid) {
+        equivalence.textContent = result.error;
+        equivalence.dataset.tone = "warning";
+        return;
+    }
+    equivalence.textContent = `1 ${result.allowedUnit.label} = ${result.allowedUnit.factorToBase} ${form.elements.baseUnit.value}`;
+    equivalence.dataset.tone = "success";
+}
+
+function findDuplicateVariantLabel(form) {
+    const semanticKeys = new Set();
+    for (const row of form.querySelectorAll("[data-unit-variant-row]")) {
+        const variant = collectVariantRowValue(row);
+        const semanticKey = getUnitVariantSemanticKey(variant);
+        if (semanticKey && semanticKeys.has(semanticKey)) return formatUnitVariantLabel(variant);
+        if (semanticKey) semanticKeys.add(semanticKey);
+    }
+    return "";
+}
+
 function updateFormReviewState(form) {
     const selectedCheckboxes = [...form.querySelectorAll("[data-controlled-unit]:checked")];
     const missingFactor = selectedCheckboxes.some((checkbox) => {
@@ -521,13 +660,26 @@ function updateFormReviewState(form) {
         return !isPositiveFactor(factorInput.value);
     });
     const status = form.querySelector("[data-item-unit-form-status]");
+    const variantRows = [...form.querySelectorAll("[data-unit-variant-row]")];
+    const hasInvalidVariant = variantRows.some((row) => (
+        !buildControlledUnitVariant(form.elements.baseUnit.value, collectVariantRowValue(row)).isValid
+    ));
+    const duplicateVariant = findDuplicateVariantLabel(form);
+    if (hasInvalidVariant || duplicateVariant) {
+        status.textContent = duplicateVariant
+            ? `A variante ${duplicateVariant} está duplicada.`
+            : "Complete as variantes e use uma unidade compatível no total.";
+        status.dataset.tone = "warning";
+        return;
+    }
     if (missingFactor) {
         status.textContent = "Há unidade sem equivalência. O perfil poderá ser salvo, mas continuará pendente.";
         status.dataset.tone = "warning";
         return;
     }
-    status.textContent = selectedCheckboxes.length ? "Todas as equivalências selecionadas estão definidas." : "Selecione as unidades permitidas.";
-    status.dataset.tone = selectedCheckboxes.length ? "success" : "warning";
+    const selectedUnitCount = selectedCheckboxes.length + variantRows.length;
+    status.textContent = selectedUnitCount ? "Todas as equivalências selecionadas estão definidas." : "Selecione as unidades permitidas.";
+    status.dataset.tone = selectedUnitCount ? "success" : "warning";
 }
 
 function synchronizeControlledForm(form) {
@@ -537,6 +689,11 @@ function synchronizeControlledForm(form) {
         if (baseCheckbox) baseCheckbox.checked = true;
     }
     form.querySelectorAll("[data-controlled-unit]").forEach((checkbox) => updateFactorField(form, checkbox));
+    form.querySelectorAll("[data-unit-variant-row]").forEach((row) => updateVariantRow(form, row));
+    form.querySelectorAll("[data-unit-family]").forEach((checkbox) => {
+        const chip = form.querySelector(`[data-unit-family-chip="${checkbox.value}"]`);
+        if (chip) chip.dataset.selected = String(checkbox.checked);
+    });
     updateDefaultOptions(form);
     updateFormReviewState(form);
 }
@@ -556,6 +713,7 @@ function collectControlledFormValues(form) {
         label: checkbox.value,
         factorToBase: form.querySelector(`[data-unit-factor="${checkbox.value}"]`).value
     }));
+    allowedUnits.push(...[...form.querySelectorAll("[data-unit-variant-row]")].map(collectVariantRowValue));
     return {
         baseUnit: form.elements.baseUnit.value,
         defaultInputUnit: form.elements.defaultInputUnit.value,
@@ -635,10 +793,69 @@ function connectItemUnitQueueNavigationEvents() {
     });
 }
 
+function getVariantFamilySection(form, family) {
+    return [...form.querySelectorAll("[data-unit-variant-family]")].find(
+        (section) => section.dataset.unitVariantFamily === family
+    ) || null;
+}
+
+function addUnitVariantRow(form, family) {
+    const definition = CONTROLLED_UNIT_VARIANT_FAMILIES.find((item) => item.family === family);
+    const section = getVariantFamilySection(form, family);
+    if (!definition || !section) return;
+    const checkbox = [...form.querySelectorAll("[data-unit-family]")].find((input) => input.value === family);
+    checkbox.checked = true;
+    section.hidden = false;
+    section.querySelector("[data-unit-variant-list]").insertAdjacentHTML("beforeend", renderUnitVariantRow({
+        variantFamily: family,
+        variantValue: "",
+        variantUnit: definition.variantUnits[0],
+        legacyLabels: []
+    }, definition));
+    synchronizeControlledForm(form);
+}
+
+function containsLegacyVariant(section) {
+    return [...section.querySelectorAll("[data-unit-variant-row]")].some(
+        (row) => parseVariantLegacyLabels(row).length > 0
+    );
+}
+
+function confirmLegacyVariantRemoval() {
+    return window.confirm("Esta variante mantém compatibilidade com lançamentos anteriores. Deseja removê-la mesmo assim?");
+}
+
+function toggleUnitVariantFamily(form, checkbox) {
+    const section = getVariantFamilySection(form, checkbox.value);
+    if (!section) return;
+    if (!checkbox.checked && containsLegacyVariant(section) && !confirmLegacyVariantRemoval()) {
+        checkbox.checked = true;
+        return;
+    }
+    section.hidden = !checkbox.checked;
+    if (!checkbox.checked) section.querySelector("[data-unit-variant-list]").innerHTML = "";
+    if (checkbox.checked && !section.querySelector("[data-unit-variant-row]")) addUnitVariantRow(form, checkbox.value);
+}
+
+function removeUnitVariantRow(form, row) {
+    if (parseVariantLegacyLabels(row).length > 0 && !confirmLegacyVariantRemoval()) return;
+    const section = row.closest("[data-unit-variant-family]");
+    row.remove();
+    if (!section.querySelector("[data-unit-variant-row]")) {
+        section.hidden = true;
+        const family = section.dataset.unitVariantFamily;
+        const checkbox = [...form.querySelectorAll("[data-unit-family]")].find((input) => input.value === family);
+        if (checkbox) checkbox.checked = false;
+    }
+    synchronizeControlledForm(form);
+    updateEditorDirtyIndicator();
+}
+
 function connectItemUnitEditorFieldEvents() {
     getElement("item-unit-editor-surface").addEventListener("change", (event) => {
         const form = event.target.closest("[data-item-unit-form]");
         if (!form) return;
+        if (event.target.matches("[data-unit-family]")) toggleUnitVariantFamily(form, event.target);
         if (event.target.matches("[data-controlled-base]")) resetFactorsForBaseChange(form);
         synchronizeControlledForm(form);
         updateEditorDirtyIndicator();
@@ -646,6 +863,7 @@ function connectItemUnitEditorFieldEvents() {
     getElement("item-unit-editor-surface").addEventListener("input", (event) => {
         const form = event.target.closest("[data-item-unit-form]");
         if (form && event.target.matches("[data-unit-factor]")) updateFormReviewState(form);
+        if (form && event.target.matches("[data-variant-value]")) synchronizeControlledForm(form);
         if (form) updateEditorDirtyIndicator();
     });
 }
@@ -674,6 +892,18 @@ function connectItemUnitEditorSubmitEvent(handlers) {
 
 function connectItemUnitEditorNavigationEvents(handlers) {
     getElement("item-unit-editor-surface").addEventListener("click", (event) => {
+        const form = event.target.closest("[data-item-unit-form]");
+        const addVariantButton = event.target.closest("[data-add-unit-variant]");
+        if (form && addVariantButton) {
+            addUnitVariantRow(form, addVariantButton.dataset.addUnitVariant);
+            updateEditorDirtyIndicator();
+            return;
+        }
+        const removeVariantButton = event.target.closest("[data-remove-unit-variant]");
+        if (form && removeVariantButton) {
+            removeUnitVariantRow(form, removeVariantButton.closest("[data-unit-variant-row]"));
+            return;
+        }
         if (event.target.closest("[data-close-item-unit-editor]")) {
             requestDiscardChanges(closeCurrentEditor);
             return;

@@ -14,6 +14,17 @@ export const CONTROLLED_ITEM_UNIT_CATALOG = Object.freeze([
     { label: "fardo", kind: "package" }
 ].map((unit) => Object.freeze(unit)));
 
+export const CONTROLLED_UNIT_VARIANT_FAMILIES = Object.freeze([
+    { family: "porção", kind: "portion", variantUnits: ["g", "kg"], compatibleBaseUnits: ["g", "kg"] },
+    { family: "fardo", kind: "package", variantUnits: ["un"], compatibleBaseUnits: ["un"] },
+    { family: "caixa", kind: "package", variantUnits: ["un"], compatibleBaseUnits: ["un"] },
+    { family: "pacote", kind: "package", variantUnits: ["un"], compatibleBaseUnits: ["un"] }
+].map((definition) => Object.freeze({
+    ...definition,
+    variantUnits: Object.freeze(definition.variantUnits),
+    compatibleBaseUnits: Object.freeze(definition.compatibleBaseUnits)
+})));
+
 function normalizeText(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ");
 }
@@ -46,6 +57,78 @@ function createUnitId(label) {
     return normalizeComparableText(label).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+function findUnitVariantFamily(value) {
+    const family = normalizeUnitAlias(value);
+    return CONTROLLED_UNIT_VARIANT_FAMILIES.find((definition) => definition.family === family) || null;
+}
+
+function normalizePositiveDecimal(value) {
+    const decimal = normalizeText(value).replace(",", ".");
+    const numericValue = Number(decimal);
+    if (!/^\d+(?:\.\d+)?$/.test(decimal) || !Number.isFinite(numericValue) || numericValue <= 0) return "";
+    const [integerPart, fractionPart = ""] = decimal.split(".");
+    const normalizedInteger = integerPart.replace(/^0+(?=\d)/, "") || "0";
+    const normalizedFraction = fractionPart.replace(/0+$/, "");
+    return normalizedFraction ? `${normalizedInteger}.${normalizedFraction}` : normalizedInteger;
+}
+
+function normalizeUnitVariantValue(definition, value) {
+    const decimal = normalizePositiveDecimal(value);
+    if (!decimal || !definition) return "";
+    if (definition.family === "porção") return decimal;
+    return /^\d+$/.test(decimal) ? decimal : "";
+}
+
+function shiftDecimal(value, places) {
+    const decimal = normalizePositiveDecimal(value);
+    if (!decimal) return "";
+    const [integerPart, fractionPart = ""] = decimal.split(".");
+    const digits = `${integerPart}${fractionPart}`;
+    const decimalPosition = integerPart.length + places;
+    if (decimalPosition <= 0) return normalizePositiveDecimal(`0.${"0".repeat(-decimalPosition)}${digits}`);
+    if (decimalPosition >= digits.length) {
+        return normalizePositiveDecimal(`${digits}${"0".repeat(decimalPosition - digits.length)}`);
+    }
+    return normalizePositiveDecimal(`${digits.slice(0, decimalPosition)}.${digits.slice(decimalPosition)}`);
+}
+
+function getPortionWeightGrams(variantValue, variantUnit) {
+    return variantUnit === "kg" ? shiftDecimal(variantValue, 3) : normalizePositiveDecimal(variantValue);
+}
+
+function normalizeLegacyLabels(values) {
+    const labels = Array.isArray(values) ? values : [];
+    return [...new Set(labels.map(normalizeText).filter(Boolean))];
+}
+
+function parseVariantFromLabel(label, portionWeightGrams) {
+    const normalizedLabel = normalizeUnitAlias(label);
+    if (normalizedLabel === "porção" && portionWeightGrams) {
+        return { variantFamily: "porção", variantValue: String(portionWeightGrams), variantUnit: "g" };
+    }
+    const match = normalizedLabel.match(/^(porção|fardo|caixa|pacote)\s+(\d+(?:[.,]\d+)?)\s*(g|kg|un)?$/);
+    if (!match) return null;
+    const definition = findUnitVariantFamily(match[1]);
+    const variantUnit = match[3] || (definition?.family === "porção" ? "" : "un");
+    return { variantFamily: definition?.family, variantValue: match[2], variantUnit };
+}
+
+function normalizeUnitVariantFields(unit, label, portionWeightGrams) {
+    const suppliedFamily = findUnitVariantFamily(unit.variantFamily);
+    const parsedVariant = suppliedFamily ? unit : parseVariantFromLabel(label, portionWeightGrams);
+    const definition = suppliedFamily || findUnitVariantFamily(parsedVariant?.variantFamily);
+    const variantValue = normalizeUnitVariantValue(definition, parsedVariant?.variantValue);
+    const variantUnit = normalizeUnitAlias(parsedVariant?.variantUnit);
+    if (!definition || !variantValue || !definition.variantUnits.includes(variantUnit)) return null;
+    const inferredLegacyLabels = label === definition.family ? [label] : [];
+    return {
+        variantFamily: definition.family,
+        variantValue,
+        variantUnit,
+        legacyLabels: normalizeLegacyLabels(unit.legacyLabels || inferredLegacyLabels)
+    };
+}
+
 function normalizeFactor(value) {
     const factor = normalizeText(value);
     return factor && /^\d+(?:\.\d+)?$/.test(factor) && Number(factor) > 0 ? factor : null;
@@ -56,16 +139,21 @@ function normalizeAllowedUnit(unit) {
     const label = normalizeText(unit.label);
     if (!label) return null;
     const portionWeight = Number(unit.portionWeightGrams);
-    return {
+    const portionWeightGrams = Number.isFinite(portionWeight) && portionWeight > 0 ? portionWeight : null;
+    const variantFields = normalizeUnitVariantFields(unit, label, portionWeightGrams);
+    const normalized = {
         id: normalizeText(unit.id) || createUnitId(label),
         label,
         normalizedUnit: normalizeUnitAlias(unit.normalizedUnit || label),
         kind: normalizeText(unit.kind) || "custom",
         factorToBase: normalizeFactor(unit.factorToBase),
-        portionWeightGrams: Number.isFinite(portionWeight) && portionWeight > 0 ? portionWeight : null,
+        portionWeightGrams,
         requiresReview: unit.requiresReview === true,
         notes: normalizeText(unit.notes)
     };
+    // Variantes reconhecidas precisam manter identidade própria para que o fator continue autoritativo.
+    if (variantFields && label !== variantFields.variantFamily) normalized.normalizedUnit = normalizeUnitAlias(label);
+    return variantFields ? { ...normalized, ...variantFields } : normalized;
 }
 
 function normalizeAllowedUnits(units) {
@@ -95,6 +183,86 @@ export function getDeterministicFactorToBase(baseUnit, allowedUnit) {
         ["ml:l", "1000"]
     ]);
     return deterministicFactors.get(`${baseLabel}:${allowedLabel}`) || null;
+}
+
+export function formatUnitVariantLabel(variant = {}) {
+    const definition = findUnitVariantFamily(variant.variantFamily);
+    const value = normalizeUnitVariantValue(definition, variant.variantValue);
+    const variantUnit = normalizeUnitAlias(variant.variantUnit);
+    if (!definition || !value || !definition.variantUnits.includes(variantUnit)) return "";
+    return definition.family === "porção"
+        ? `${definition.family} ${value} ${variantUnit}`
+        : `${definition.family} ${value}`;
+}
+
+export function getUnitVariantSemanticKey(variant = {}) {
+    const definition = findUnitVariantFamily(variant.variantFamily);
+    const value = normalizeUnitVariantValue(definition, variant.variantValue);
+    const variantUnit = normalizeUnitAlias(variant.variantUnit);
+    if (!definition || !value || !definition.variantUnits.includes(variantUnit)) return "";
+    if (definition.family === "porção") {
+        const weightGrams = getPortionWeightGrams(value, variantUnit);
+        return weightGrams ? `${definition.family}:${weightGrams}:g` : "";
+    }
+    return `${definition.family}:${value}:un`;
+}
+
+export function getAllowedUnitVariant(unit) {
+    const normalized = normalizeAllowedUnit(unit);
+    if (!normalized?.variantFamily) return null;
+    const label = formatUnitVariantLabel(normalized);
+    if (!label) return null;
+    const legacyLabels = normalizeLegacyLabels([
+        ...(normalized.legacyLabels || []),
+        ...(normalized.label !== label ? [normalized.label] : [])
+    ]);
+    return {
+        id: createUnitId(label),
+        label,
+        variantFamily: normalized.variantFamily,
+        variantValue: normalized.variantValue,
+        variantUnit: normalized.variantUnit,
+        legacyLabels
+    };
+}
+
+export function getUnitVariantFactorToBase(baseUnit, variant = {}) {
+    const definition = findUnitVariantFamily(variant.variantFamily);
+    const normalizedBase = normalizeUnitAlias(baseUnit);
+    const value = normalizeUnitVariantValue(definition, variant.variantValue);
+    const variantUnit = normalizeUnitAlias(variant.variantUnit);
+    if (!definition || !definition.compatibleBaseUnits.includes(normalizedBase)) return null;
+    if (!value || !definition.variantUnits.includes(variantUnit)) return null;
+    if (definition.family !== "porção") return value;
+    const grams = getPortionWeightGrams(value, variantUnit);
+    const exactFactor = normalizedBase === "kg" ? shiftDecimal(grams, -3) : grams;
+    return normalizeFactor(formatFactor(Number(exactFactor)));
+}
+
+export function buildControlledUnitVariant(baseUnit, variant = {}) {
+    const definition = findUnitVariantFamily(variant.variantFamily);
+    const label = formatUnitVariantLabel(variant);
+    const factorToBase = getUnitVariantFactorToBase(baseUnit, variant);
+    if (!definition) return { isValid: false, error: "Escolha uma família de variante válida.", allowedUnit: null };
+    if (!label) return { isValid: false, error: `Informe uma apresentação válida para ${definition.family}.`, allowedUnit: null };
+    if (!factorToBase) {
+        return { isValid: false, error: `${definition.family} exige uma unidade usada no total compatível.`, allowedUnit: null };
+    }
+    const variantValue = normalizeUnitVariantValue(definition, variant.variantValue);
+    const variantUnit = normalizeUnitAlias(variant.variantUnit);
+    const portionWeightGrams = definition.family === "porção"
+        ? Number(getPortionWeightGrams(variantValue, variantUnit))
+        : null;
+    // A identidade própria evita que a conversão confunda uma variante com uma unidade base de mesmo tipo.
+    const allowedUnit = createAllowedUnit(label, label, definition.kind, factorToBase, {
+        id: createUnitId(label),
+        variantFamily: definition.family,
+        variantValue,
+        variantUnit,
+        legacyLabels: variant.legacyLabels,
+        portionWeightGrams
+    });
+    return { isValid: true, error: "", allowedUnit };
 }
 
 export function normalizeItemUnitSetting(setting, timestamp = new Date().toISOString()) {
@@ -194,6 +362,10 @@ function createAllowedUnit(label, normalizedUnit, kind, factorToBase, options = 
         kind,
         factorToBase,
         portionWeightGrams: options.portionWeightGrams,
+        variantFamily: options.variantFamily,
+        variantValue: options.variantValue,
+        variantUnit: options.variantUnit,
+        legacyLabels: options.legacyLabels,
         requiresReview: options.requiresReview,
         notes: options.notes
     });
@@ -445,44 +617,9 @@ export function applyManualItemUnitProfile(profile, overrides) {
     });
 }
 
-function normalizeControlledAllowedUnitInputs(values) {
-    const unitsByLabel = new Map();
-    const unsupportedLabels = [];
-    (Array.isArray(values) ? values : []).forEach((value) => {
-        const input = typeof value === "string" ? { label: value } : value;
-        const definition = findControlledUnitDefinition(input?.label);
-        if (!definition) {
-            unsupportedLabels.push(normalizeText(input?.label));
-            return;
-        }
-        unitsByLabel.set(definition.label, { definition, factorToBase: input?.factorToBase });
-    });
-    return { units: [...unitsByLabel.values()], unsupportedLabels: unsupportedLabels.filter(Boolean) };
-}
-
-export function validateControlledItemUnitProfileInput(overrides = {}) {
-    const baseDefinition = findControlledUnitDefinition(overrides.baseUnit);
-    const defaultDefinition = findControlledUnitDefinition(overrides.defaultInputUnit);
-    const selection = normalizeControlledAllowedUnitInputs(overrides.allowedUnits);
-    const selectedLabels = new Set(selection.units.map((unit) => unit.definition.label));
-    const errors = [];
-
-    if (!baseDefinition) errors.push("Escolha uma unidade base do catálogo controlado.");
-    if (selection.units.length === 0) errors.push("Selecione ao menos uma unidade permitida.");
-    if (baseDefinition && !selectedLabels.has(baseDefinition.label)) {
-        errors.push("A unidade base precisa estar entre as unidades permitidas.");
-    }
-    if (!defaultDefinition || !selectedLabels.has(defaultDefinition.label)) {
-        errors.push("A unidade padrão precisa estar entre as unidades permitidas.");
-    }
-    if (selection.unsupportedLabels.length > 0) {
-        errors.push("O perfil contém unidade fora do catálogo controlado.");
-    }
-    return { isValid: errors.length === 0, error: errors[0] || "", errors, baseDefinition, selection };
-}
-
 function createControlledAllowedUnit(baseLabel, input) {
-    const { definition } = input;
+    const definition = findControlledUnitDefinition(input?.label);
+    if (!definition) return null;
     const deterministicFactor = getDeterministicFactorToBase(baseLabel, definition.label);
     const explicitFactor = normalizeFactor(normalizeText(input.factorToBase).replace(",", "."));
     const factorToBase = deterministicFactor || explicitFactor;
@@ -492,18 +629,66 @@ function createControlledAllowedUnit(baseLabel, input) {
     });
 }
 
+function createControlledSelectionUnit(baseLabel, value) {
+    const input = typeof value === "string" ? { label: value } : value;
+    if (input?.variantFamily) return buildControlledUnitVariant(baseLabel, input);
+    const allowedUnit = createControlledAllowedUnit(baseLabel, input);
+    return allowedUnit
+        ? { isValid: true, error: "", allowedUnit }
+        : { isValid: false, error: "O perfil contém unidade fora do catálogo controlado.", allowedUnit: null };
+}
+
+function normalizeControlledAllowedUnitInputs(values, baseLabel) {
+    const unitsById = new Map();
+    const variantSemanticKeys = new Set();
+    const errors = [];
+    (Array.isArray(values) ? values : []).forEach((value) => {
+        const result = createControlledSelectionUnit(baseLabel, value);
+        if (!result.isValid) {
+            errors.push(result.error);
+            return;
+        }
+        const semanticKey = getUnitVariantSemanticKey(result.allowedUnit);
+        if (unitsById.has(result.allowedUnit.id) || (semanticKey && variantSemanticKeys.has(semanticKey))) {
+            errors.push(`A variante ${result.allowedUnit.label} está duplicada.`);
+            return;
+        }
+        unitsById.set(result.allowedUnit.id, result.allowedUnit);
+        if (semanticKey) variantSemanticKeys.add(semanticKey);
+    });
+    return { units: [...unitsById.values()], errors };
+}
+
+export function validateControlledItemUnitProfileInput(overrides = {}) {
+    const baseDefinition = findControlledUnitDefinition(overrides.baseUnit);
+    const baseLabel = baseDefinition?.label || normalizeUnitAlias(overrides.baseUnit);
+    const selection = normalizeControlledAllowedUnitInputs(overrides.allowedUnits, baseLabel);
+    const selectedLabels = new Set(selection.units.map((unit) => unit.label));
+    const hasBaseUnit = selection.units.some((unit) => unit.normalizedUnit === baseLabel);
+    const defaultInputUnit = normalizeText(overrides.defaultInputUnit);
+    const errors = [...selection.errors];
+
+    if (!baseDefinition) errors.unshift("Escolha uma unidade base do catálogo controlado.");
+    if (selection.units.length === 0) errors.push("Selecione ao menos uma unidade permitida.");
+    if (baseDefinition && !hasBaseUnit) errors.push("A unidade base precisa estar entre as unidades permitidas.");
+    if (!defaultInputUnit || !selectedLabels.has(defaultInputUnit)) {
+        errors.push("A unidade padrão precisa estar entre as unidades permitidas.");
+    }
+    return { isValid: errors.length === 0, error: errors[0] || "", errors, baseDefinition, selection };
+}
+
 export function buildControlledItemUnitProfile(profile, overrides = {}) {
     const inputValidation = validateControlledItemUnitProfileInput(overrides);
     if (!inputValidation.isValid) return { ...inputValidation, setting: null, isResolved: false, warnings: [] };
 
     const baseLabel = inputValidation.baseDefinition.label;
-    const allowedUnits = inputValidation.selection.units.map((unit) => createControlledAllowedUnit(baseLabel, unit));
+    const allowedUnits = inputValidation.selection.units;
     const hasMissingFactor = allowedUnits.some((unit) => !unit.factorToBase);
     const setting = normalizeItemUnitSetting({
         ...profile,
         baseUnit: baseLabel,
-        defaultInputUnit: findControlledUnitDefinition(overrides.defaultInputUnit).label,
-        manualUnit: findControlledUnitDefinition(overrides.defaultInputUnit).label,
+        defaultInputUnit: normalizeText(overrides.defaultInputUnit),
+        manualUnit: normalizeText(overrides.defaultInputUnit),
         allowedUnits,
         source: "manual",
         confidence: "high",

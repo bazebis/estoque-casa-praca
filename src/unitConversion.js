@@ -85,6 +85,11 @@ export function findAllowedUnit(profile, rawUnitOrNormalizedUnit) {
     const exactMatch = allowedUnits.find((unit) => normalizeLabel(unit.label) === requestedLabel);
     if (exactMatch) return exactMatch;
     const normalizedUnit = normalizeUnitAlias(rawUnitOrNormalizedUnit);
+    const legacyMatches = allowedUnits.filter((unit) => (unit.legacyLabels || []).some(
+        (label) => normalizeUnitAlias(label) === normalizedUnit
+    ));
+    // Um alias legado só é seguro quando aponta para uma única apresentação do produto.
+    if (legacyMatches.length === 1) return legacyMatches[0];
     const normalizedLabelMatch = allowedUnits.find((unit) => normalizeUnitAlias(unit.label) === normalizedUnit);
     if (normalizedLabelMatch) return normalizedLabelMatch;
     return allowedUnits.find((unit) => normalizeUnitAlias(unit.normalizedUnit) === normalizedUnit) || null;
