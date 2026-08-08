@@ -198,7 +198,20 @@
                         <button type="button" id="btn-share-snapshot-pending-csv">Compartilhar pendências pelo sistema (experimental)</button>
                     </div>
                 </details>
-                <p class="snapshot-csv-future-notice">A planilha XLSX semelhante ao modelo original será feita em etapa posterior.</p>
+            </section>
+            <section id="snapshot-xlsx-export-panel" class="snapshot-xlsx-export-panel" aria-labelledby="snapshot-xlsx-export-title">
+                <h3 id="snapshot-xlsx-export-title">Exportar XLSX piloto</h3>
+                <p class="snapshot-xlsx-privacy-notice">A planilha modelo é usada apenas neste navegador para gerar uma cópia preenchida. Ela não é enviada nem salva no app.</p>
+                <p id="snapshot-xlsx-export-status" class="snapshot-xlsx-export-status"></p>
+                <label for="snapshot-xlsx-template-file">Planilha modelo (.xlsx)</label>
+                <input
+                    type="file"
+                    id="snapshot-xlsx-template-file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                >
+                <button type="button" id="btn-export-snapshot-xlsx" disabled>Gerar XLSX preenchido</button>
+                <div id="snapshot-xlsx-export-plan" class="snapshot-xlsx-export-plan" hidden></div>
+                <p id="snapshot-xlsx-export-feedback" class="snapshot-xlsx-export-feedback" aria-live="polite"></p>
             </section>
             <h3 id="consolidation-snapshot-detail-title"></h3>
             <p id="consolidation-snapshot-detail-meta"></p>

@@ -36,11 +36,15 @@ import {
     hideConsolidationSnapshotsView,
     renderConsolidationSnapshotDetail,
     renderConsolidationSnapshotList,
+    renderSnapshotXlsxExportPlan,
+    resetSnapshotXlsxExport,
     selectSnapshotShareMessage,
+    setSnapshotXlsxExportBusy,
     showConsolidationSnapshotsFeedback,
     showConsolidationSnapshotsView,
     showSnapshotFinalizationFeedback,
     showSnapshotCsvExportFeedback,
+    showSnapshotXlsxExportFeedback,
     showSnapshotShareFeedback
 } from "./consolidationSnapshotsUi.js";
 import { buildSnapshotCsvBundle, downloadTextFile as downloadSnapshotCsvFile } from "./snapshotCsvExport.js";
@@ -233,6 +237,12 @@ let selectedCountConsolidationTemplateId = null;
 let activeCountConsolidationReport = null;
 let activeConsolidationSnapshotId = null;
 let activeConsolidationSnapshot = null;
+let activeSnapshotXlsxSelection = null;
+
+function loadSnapshotXlsxExport() {
+    // XLSX is loaded only when selected because it is substantially larger than the rest of the app.
+    return import("./snapshotXlsxExport.js");
+}
 let activeSnapshotWhatsappSettings = normalizeWhatsappSettings();
 let activeAreaCountSessionId = null;
 let activeAreaOpenSessionCount = 0;
@@ -752,6 +762,7 @@ async function refreshConsolidationSnapshotsList() {
     const snapshots = await listConsolidationSnapshots();
     activeConsolidationSnapshotId = null;
     activeConsolidationSnapshot = null;
+    activeSnapshotXlsxSelection = null;
     renderConsolidationSnapshotList(snapshots);
     return snapshots;
 }
@@ -770,6 +781,7 @@ async function openConsolidationSnapshots() {
 function closeConsolidationSnapshots() {
     activeConsolidationSnapshotId = null;
     activeConsolidationSnapshot = null;
+    activeSnapshotXlsxSelection = null;
     hideConsolidationSnapshotsView();
 }
 
@@ -782,6 +794,7 @@ async function openConsolidationSnapshotDetail(snapshotId) {
         if (!snapshot) throw new Error("Fechamento não encontrado neste aparelho.");
         activeConsolidationSnapshotId = snapshot.id;
         activeConsolidationSnapshot = snapshot;
+        activeSnapshotXlsxSelection = null;
         activeSnapshotWhatsappSettings = whatsappSettings;
         renderConsolidationSnapshotDetail(snapshot, buildSnapshotDetailOptions(snapshot));
         showConsolidationSnapshotsFeedback("");
@@ -824,6 +837,7 @@ async function finalizeSavedConsolidationSnapshot() {
         if (!confirmSnapshotFinalization(snapshot)) return;
         const result = await finalizeConsolidationSnapshot(snapshot.id, { finalizedBy: "local-user" });
         activeConsolidationSnapshot = result.snapshot;
+        activeSnapshotXlsxSelection = null;
         activeCountConsolidationReport = null;
         renderConsolidationSnapshotDetail(result.snapshot, buildSnapshotDetailOptions(result.snapshot));
         await refreshPilotDashboard();
@@ -911,6 +925,74 @@ async function exportSavedSnapshotCsv(kind) {
         showSnapshotCsvExportFeedback(message, "success");
     } catch (error) {
         showSnapshotCsvExportFeedback(error.message || "Não foi possível gerar o CSV.", "error");
+    }
+}
+
+function getActiveSnapshotForXlsxExport() {
+    if (!activeConsolidationSnapshot || activeConsolidationSnapshot.id !== activeConsolidationSnapshotId) {
+        throw new Error("Abra um fechamento salvo antes de exportar XLSX.");
+    }
+    return activeConsolidationSnapshot;
+}
+
+async function selectSnapshotXlsxTemplate(file) {
+    let snapshot = null;
+    try {
+        snapshot = getActiveSnapshotForXlsxExport();
+        activeSnapshotXlsxSelection = null;
+        if (!file) {
+            resetSnapshotXlsxExport(snapshot);
+            return;
+        }
+        setSnapshotXlsxExportBusy(true);
+        showSnapshotXlsxExportFeedback("Validando a planilha modelo…");
+        const {
+            analyzeWorkbookForExport,
+            buildXlsxExportPlan,
+            readWorkbookFromFile
+        } = await loadSnapshotXlsxExport();
+        const workbook = await readWorkbookFromFile(file);
+        const workbookAnalysis = analyzeWorkbookForExport(workbook);
+        const plan = buildXlsxExportPlan(snapshot, workbookAnalysis);
+        activeSnapshotXlsxSelection = { file, plan, snapshotId: snapshot.id };
+        renderSnapshotXlsxExportPlan(file, plan);
+        const message = plan.canExport
+            ? "Modelo validado. Confira o resumo e gere a cópia preenchida."
+            : "A exportação está bloqueada. Revise os motivos apresentados.";
+        const tone = plan.canExport ? (plan.warnings.length ? "warning" : "success") : "error";
+        showSnapshotXlsxExportFeedback(message, tone);
+        setSnapshotXlsxExportBusy(false, plan.canExport);
+    } catch (error) {
+        if (snapshot) resetSnapshotXlsxExport(snapshot);
+        setSnapshotXlsxExportBusy(false, false);
+        showSnapshotXlsxExportFeedback(error.message || "Não foi possível validar a planilha modelo.", "error");
+    }
+}
+
+async function exportSavedSnapshotXlsx() {
+    const selection = activeSnapshotXlsxSelection;
+    try {
+        const snapshot = getActiveSnapshotForXlsxExport();
+        if (!selection?.file || selection.snapshotId !== snapshot.id) {
+            showSnapshotXlsxExportFeedback("Selecione e valide uma planilha modelo antes de gerar.", "warning");
+            return;
+        }
+        setSnapshotXlsxExportBusy(true);
+        showSnapshotXlsxExportFeedback("Gerando uma cópia preenchida em memória…");
+        const { exportSnapshotToXlsx } = await loadSnapshotXlsxExport();
+        const result = await exportSnapshotToXlsx({ snapshot, file: selection.file });
+        activeSnapshotXlsxSelection = { ...selection, plan: result.plan };
+        renderSnapshotXlsxExportPlan(selection.file, result.plan);
+        if (result.status === "blocked") {
+            showSnapshotXlsxExportFeedback("A planilha mudou ou apresentou bloqueios. Nenhum XLSX foi gerado.", "error");
+            setSnapshotXlsxExportBusy(false, false);
+            return;
+        }
+        showSnapshotXlsxExportFeedback(`Download iniciado: ${result.filename}`, "success");
+        setSnapshotXlsxExportBusy(false, true);
+    } catch (error) {
+        showSnapshotXlsxExportFeedback(error.message || "Não foi possível gerar o XLSX.", "error");
+        setSnapshotXlsxExportBusy(false, Boolean(selection?.plan?.canExport));
     }
 }
 
@@ -1940,7 +2022,9 @@ connectConsolidationSnapshotsEvents({
     onSharePendingCsv: () => shareSavedSnapshotCsv("pending"),
     onOpenWhatsapp: openSavedSnapshotWhatsapp,
     onCopyMessage: copySavedSnapshotMessage,
-    onFinalize: finalizeSavedConsolidationSnapshot
+    onFinalize: finalizeSavedConsolidationSnapshot,
+    onSelectXlsxTemplate: selectSnapshotXlsxTemplate,
+    onExportXlsx: exportSavedSnapshotXlsx
 });
 
 renderUnitOptions();

@@ -85,6 +85,62 @@ export function showSnapshotFinalizationFeedback(message, tone = "") {
     feedback.dataset.tone = tone;
 }
 
+export function showSnapshotXlsxExportFeedback(message, tone = "") {
+    const feedback = getElement("snapshot-xlsx-export-feedback");
+    feedback.textContent = message;
+    feedback.dataset.tone = tone;
+}
+
+function renderXlsxIssueList(plan) {
+    const visibleIssues = plan.issues.slice(0, 20);
+    const remainingCount = plan.issues.length - visibleIssues.length;
+    if (!visibleIssues.length) return '<p class="snapshot-xlsx-no-issues">Nenhum aviso ou bloqueio.</p>';
+    const issueItems = visibleIssues.map((issue) => (
+        `<li class="is-${escapeHtml(issue.severity)}"><strong>${issue.severity === "blocker" ? "Bloqueio" : "Aviso"}:</strong> ${escapeHtml(issue.message)}</li>`
+    ));
+    if (remainingCount > 0) issueItems.push(`<li>Mais ${remainingCount} ocorrência(s) não exibida(s).</li>`);
+    return `<ul>${issueItems.join("")}</ul>`;
+}
+
+export function renderSnapshotXlsxExportPlan(file, plan) {
+    const planElement = getElement("snapshot-xlsx-export-plan");
+    const statistics = [
+        ["Itens mapeados", plan.mappedItemCount],
+        ["Linhas sem item no snapshot", plan.sheetItemWithoutSnapshotCount],
+        ["Células preenchidas", plan.filledCellCount],
+        ["Células vazias por ausência", plan.emptyCellCount],
+        ["Grupos sem TOTAL", plan.groupWithoutTotalCount],
+        ["Avisos", plan.warnings.length],
+        ["Bloqueios", plan.blockers.length]
+    ];
+    planElement.innerHTML = `
+        <p><strong>Modelo analisado:</strong> ${escapeHtml(file?.name || "arquivo selecionado")}</p>
+        <dl>${statistics.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>
+        <div class="snapshot-xlsx-issues">${renderXlsxIssueList(plan)}</div>
+    `;
+    planElement.hidden = false;
+    getElement("btn-export-snapshot-xlsx").disabled = !plan.canExport;
+}
+
+export function resetSnapshotXlsxExport(snapshot) {
+    const isFinalized = Boolean(snapshot.finalizedAt);
+    const fileInput = getElement("snapshot-xlsx-template-file");
+    fileInput.value = "";
+    fileInput.disabled = !isFinalized;
+    getElement("btn-export-snapshot-xlsx").disabled = true;
+    getElement("snapshot-xlsx-export-status").textContent = isFinalized
+        ? "Selecione a planilha modelo para validar e preparar o preenchimento."
+        : "Finalize este fechamento antes de selecionar a planilha e gerar XLSX.";
+    getElement("snapshot-xlsx-export-plan").hidden = true;
+    getElement("snapshot-xlsx-export-plan").innerHTML = "";
+    showSnapshotXlsxExportFeedback("");
+}
+
+export function setSnapshotXlsxExportBusy(isBusy, canExport = false) {
+    getElement("snapshot-xlsx-template-file").disabled = isBusy;
+    getElement("btn-export-snapshot-xlsx").disabled = isBusy || !canExport;
+}
+
 function getFinalizationStatusText(snapshot) {
     if (snapshot.finalizedAt) {
         const warningText = snapshot.finalizationNotes ? ` Avisos: ${snapshot.finalizationNotes}` : "";
@@ -265,6 +321,7 @@ export function renderConsolidationSnapshotDetail(snapshot, options = {}) {
         ? `<ul>${snapshot.pendingEntries.map(renderPending).join("")}</ul>`
         : '<p class="count-consolidation-empty">Nenhuma pendência foi congelada neste snapshot.</p>';
     renderSnapshotFinalization(snapshot);
+    resetSnapshotXlsxExport(snapshot);
     getElement("btn-download-snapshot-pending-csv").disabled = snapshot.pendingEntries.length === 0;
     getElement("btn-download-snapshot-pending-csv").title = snapshot.pendingEntries.length
         ? "Baixar as pendências congeladas"
@@ -310,6 +367,10 @@ export function connectConsolidationSnapshotsEvents(handlers) {
     getElement("btn-open-snapshot-whatsapp").addEventListener("click", handlers.onOpenWhatsapp);
     getElement("btn-copy-snapshot-share-message").addEventListener("click", handlers.onCopyMessage);
     getElement("btn-finalize-consolidation-snapshot").addEventListener("click", handlers.onFinalize);
+    getElement("snapshot-xlsx-template-file").addEventListener("change", (event) => (
+        handlers.onSelectXlsxTemplate(event.target.files?.[0] || null)
+    ));
+    getElement("btn-export-snapshot-xlsx").addEventListener("click", handlers.onExportXlsx);
     getElement("consolidation-snapshots-list").addEventListener("click", (event) => {
         const openButton = event.target.closest("[data-open-consolidation-snapshot]");
         const deleteButton = event.target.closest("[data-delete-consolidation-snapshot]");

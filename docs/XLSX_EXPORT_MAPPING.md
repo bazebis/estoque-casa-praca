@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Definir como um fechamento de contagem já finalizado poderá alimentar, em uma etapa futura, uma cópia da planilha oficial. Este documento descreve somente o mapeamento. Ele não autoriza geração, download ou edição de XLSX.
+Definir como um fechamento de contagem já finalizado alimenta uma cópia da planilha oficial no exportador piloto. O arquivo modelo é selecionado manualmente no detalhe do fechamento, validado e processado somente em memória no navegador.
 
 ## Fonte de dados
 
@@ -14,6 +14,8 @@ A origem é o snapshot congelado da consolidação, não o estado vivo da contag
 - preservar status e pendências da consolidação.
 
 O template oficial local é apenas uma fonte de estrutura em ambiente controlado. Ele não deve ser importado pela PWA, copiado para o bundle ou versionado.
+
+O piloto não persiste o arquivo selecionado, não altera o original e não usa o estado vivo da contagem para recalcular valores.
 
 ## Estrutura esperada da planilha
 
@@ -61,6 +63,7 @@ Variações de caixa, espaços e acentuação podem ser normalizadas para compar
 - O valor de uma área vem da célula correspondente em `item.areas`.
 - O destino é descoberto pelo cabeçalho do grupo, normalmente em `G` ou `H`.
 - O total vem de `item.total` e só pode ir para `I` quando o grupo declara `TOTAL`.
+- Sem coluna `TOTAL`, o grupo de uma única área só é aceito quando o total congelado coincide com essa área.
 - Uma área sem coluna naquele grupo não pode ser redirecionada para outra área.
 - Antes de aceitar o total, o plano deve confirmar que nenhuma quantidade ficou fora das colunas representáveis pelo grupo.
 
@@ -77,10 +80,10 @@ Variações de caixa, espaços e acentuação podem ser normalizadas para compar
 - Pendência sem conversão mantém a célula e o total vazios e bloqueia o plano.
 - Valor parcial não deve ser escrito como valor definitivo; a célula e o total ficam vazios e o plano é bloqueado.
 - Um snapshot finalizado com avisos pode ser mapeado para diagnóstico, mas não é exportável segundo a política conservadora atual.
-- Item existente na planilha e ausente no snapshot permanece vazio e gera bloqueio.
+- Item existente na planilha e ausente no snapshot gera aviso se suas quantidades estiverem vazias; se já houver quantidade, gera bloqueio para evitar carregar valor estranho ao fechamento.
 - Item existente no snapshot e ausente na planilha não cria nova linha e gera bloqueio.
 
-## Algoritmo futuro de exportação
+## Algoritmo do exportador piloto
 
 1. Recusar snapshots não finalizados ou estruturalmente inválidos.
 2. Abrir uma cópia do template e identificar de modo inequívoco a aba operacional.
@@ -89,9 +92,9 @@ Variações de caixa, espaços e acentuação podem ser normalizadas para compar
 5. Indexar as linhas de item por código normalizado e rejeitar duplicidades.
 6. Cruzar cada item do snapshot com uma única linha da planilha.
 7. Validar nome, grupo, unidade base, áreas, status e pendências.
-8. Criar em memória um plano de células candidatas, sem mutar o workbook.
+8. Criar em memória um plano de células candidatas antes de mutar o workbook carregado.
 9. Classificar problemas em bloqueios e avisos.
-10. Somente em etapa posterior e com plano sem bloqueios, aplicar quantidades numéricas a uma cópia e validar o arquivo resultante.
+10. Somente com plano sem bloqueios, aplicar quantidades numéricas à cópia em memória e iniciar o download de um novo arquivo.
 
 O plano intermediário deve ser audível. Cada operação precisa informar linha, coluna, área, origem do valor e estado da validação, sem persistir dados reais no código-fonte.
 
@@ -102,13 +105,15 @@ São bloqueios:
 - aba operacional ausente ou ambígua;
 - snapshot não finalizado;
 - código ausente ou duplicado;
-- item sem correspondência em qualquer lado;
+- item do snapshot sem linha correspondente;
+- linha sem item no snapshot quando já contém quantidade;
 - área com lançamento sem coluna no grupo;
 - pendência ou valor parcial;
 - unidade base ausente ou inconsistente.
 
 São avisos que exigem decisão antes da exportação:
 
+- linha vazia de quantidade sem item correspondente no snapshot;
 - nome ou grupo diferente para o mesmo código;
 - grupo sem coluna de total;
 - célula de data ainda não definida;
@@ -119,18 +124,16 @@ São avisos que exigem decisão antes da exportação:
 - Não há coluna de unidade, status ou pendência no layout atual.
 - O total não é calculado por fórmula no template inspecionado.
 - Nem todos os grupos declaram as mesmas áreas.
-- Pelo menos um grupo não declara coluna de total.
+- Pelo menos um grupo não declara coluna de total; o piloto permite esse caso apenas quando existe uma única área representada e registra aviso.
 - A leitura disponível não comprova preservação completa de estilos em uma escrita futura.
-- Nenhum XLSX de saída foi produzido ou validado nesta etapa.
+- A biblioteca pode não preservar todos os detalhes visuais ou de impressão do arquivo original.
 
 ## Decisões pendentes
 
 1. Confirmar a unidade operacional esperada para cada item.
-2. Confirmar o tratamento do grupo sem total declarado.
-3. Definir a célula de data.
-4. Decidir se divergências de nome/grupo devem sempre bloquear.
-5. Confirmar que snapshots com qualquer pendência continuarão impedidos de gerar XLSX.
-6. Definir critérios de comparação visual e estrutural para uma futura cópia de teste.
+2. Definir a célula de data.
+3. Decidir se divergências de nome/grupo devem sempre bloquear.
+4. Definir critérios de comparação visual e estrutural para a cópia baixada.
 
 ## Riscos
 

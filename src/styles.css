@@ -1029,6 +1029,112 @@ textarea:focus-visible {
     border-radius: var(--radius-md);
 }
 
+.snapshot-xlsx-export-panel {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-4) 0;
+    padding: var(--space-3);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+}
+
+.snapshot-xlsx-export-panel h3,
+.snapshot-xlsx-export-panel p {
+    margin: 0;
+}
+
+.snapshot-xlsx-export-panel input,
+.snapshot-xlsx-export-panel button {
+    margin: 0;
+}
+
+.snapshot-xlsx-export-panel input:disabled,
+.snapshot-xlsx-export-panel button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.snapshot-xlsx-privacy-notice {
+    padding: var(--space-2);
+    background-color: #173d23;
+    border-radius: var(--radius-sm);
+    color: #b8f1c5;
+}
+
+.snapshot-xlsx-export-status,
+.snapshot-xlsx-no-issues {
+    color: var(--color-text-muted);
+}
+
+.snapshot-xlsx-export-plan {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-md);
+}
+
+.snapshot-xlsx-export-plan[hidden] {
+    display: none;
+}
+
+.snapshot-xlsx-export-plan dl {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: var(--space-2);
+    margin: 0;
+}
+
+.snapshot-xlsx-export-plan dl div {
+    padding: var(--space-2);
+    background-color: var(--color-surface-raised);
+    border-radius: var(--radius-sm);
+}
+
+.snapshot-xlsx-export-plan dt {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.snapshot-xlsx-export-plan dd {
+    margin: var(--space-1) 0 0;
+    font-size: 1.2rem;
+    font-weight: 800;
+}
+
+.snapshot-xlsx-issues ul {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding-left: 1.4rem;
+}
+
+.snapshot-xlsx-issues .is-blocker {
+    color: #ffb3b3;
+}
+
+.snapshot-xlsx-issues .is-warning {
+    color: #ffe49c;
+}
+
+.snapshot-xlsx-export-feedback {
+    min-height: 1.4em;
+    color: var(--color-text-muted);
+}
+
+.snapshot-xlsx-export-feedback[data-tone="success"] {
+    color: #a7e3ae;
+}
+
+.snapshot-xlsx-export-feedback[data-tone="warning"] {
+    color: #ffe49c;
+}
+
+.snapshot-xlsx-export-feedback[data-tone="error"] {
+    color: #ffb3b3;
+}
+
 .snapshot-csv-export-panel h3,
 .snapshot-csv-export-panel p {
     margin-top: 0;
