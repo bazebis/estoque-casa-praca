@@ -1222,7 +1222,7 @@ async function saveManualItemUnit(itemCode, overrides) {
         const result = buildControlledItemUnitProfile(profile, overrides);
         if (!result.isValid) {
             showItemUnitSettingsFeedback(result.error || "O perfil controlado está incompleto.", "warning");
-            return;
+            return false;
         }
         await saveItemUnitSetting(result.setting);
         await refreshItemUnitSettingsView();
@@ -1230,8 +1230,10 @@ async function saveManualItemUnit(itemCode, overrides) {
             ? "Perfil controlado salvo e marcado como resolvido neste aparelho."
             : `Perfil salvo, mas continua pendente. ${result.warnings[0] || "Revise a configuração."}`;
         showItemUnitSettingsFeedback(message, result.isResolved ? "success" : "warning");
+        return true;
     } catch (error) {
         showItemUnitSettingsFeedback(error.message || "Não foi possível salvar a unidade.", "error");
+        return false;
     }
 }
 

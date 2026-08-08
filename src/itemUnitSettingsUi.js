@@ -8,6 +8,8 @@ import {
 let currentViewModel = null;
 let itemSearchQuery = "";
 let activeProfileFilter = "all";
+let activeItemIndex = 0;
+let currentNavigationItems = [];
 
 const sourceLabels = {
     manual: "manual",
@@ -65,25 +67,60 @@ function renderSummary(summary) {
     `;
 }
 
-function matchesSearch(item, group) {
-    const query = itemSearchQuery.trim().toLocaleLowerCase("pt-BR");
+function matchesSearch(item, group, searchQuery) {
+    const query = searchQuery.trim().toLocaleLowerCase("pt-BR");
     if (!query) return true;
     return `${item.code} ${item.name} ${group.name}`.toLocaleLowerCase("pt-BR").includes(query);
 }
 
-function matchesProfileFilter(setting) {
-    if (activeProfileFilter === "review") return doesItemUnitProfileNeedReview(setting);
-    if (activeProfileFilter === "missing") return !isItemUnitProfileComplete(setting);
+function matchesProfileFilter(setting, profileFilter) {
+    if (profileFilter === "review") return doesItemUnitProfileNeedReview(setting);
+    if (profileFilter === "missing") return !isItemUnitProfileComplete(setting);
     return true;
 }
 
-function renderAllowedUnit(unit) {
-    const factor = unit.factorToBase ? `fator ${unit.factorToBase}` : "fator indefinido";
+export function buildItemUnitNavigationItems(template, settings = [], searchQuery = "", profileFilter = "all") {
+    const settingsByItem = new Map(settings.map((setting) => [setting.itemCode, setting]));
+    return (template?.groups || []).flatMap((group) => (group.items || []).filter((item) => {
+        const setting = settingsByItem.get(item.code);
+        return matchesSearch(item, group, searchQuery) && matchesProfileFilter(setting, profileFilter);
+    }).map((item) => ({ item, group, setting: settingsByItem.get(item.code) })));
+}
+
+export function clampItemUnitNavigationIndex(index, itemCount) {
+    if (itemCount <= 0) return 0;
+    return Math.min(Math.max(Number(index) || 0, 0), itemCount - 1);
+}
+
+export function resolveItemUnitIndexAfterSave(items, currentIndex, nextItemCode, didSave) {
+    if (!didSave || !nextItemCode) return clampItemUnitNavigationIndex(currentIndex, items.length);
+    const nextIndex = items.findIndex((entry) => entry.item.code === nextItemCode);
+    return nextIndex >= 0 ? nextIndex : clampItemUnitNavigationIndex(currentIndex, items.length);
+}
+
+export function buildUnitEquivalenceView(baseUnit, allowedUnit, savedFactor = "") {
+    const automaticFactor = getDeterministicFactorToBase(baseUnit, allowedUnit);
+    const value = automaticFactor || String(savedFactor || "");
+    const baseLabel = baseUnit || "unidade base";
+    return {
+        value,
+        isAutomatic: Boolean(automaticFactor),
+        expression: `1 ${allowedUnit} = ${value || "…"} ${baseLabel}`,
+        help: automaticFactor
+            ? "Equivalência automática."
+            : `Quanto 1 ${allowedUnit} representa em ${baseLabel}?`
+    };
+}
+
+function renderAllowedUnit(unit, baseUnit) {
+    const equivalence = unit.factorToBase
+        ? `1 ${unit.label} = ${unit.factorToBase} ${baseUnit}`
+        : `1 ${unit.label} = equivalência pendente`;
     const review = unit.requiresReview ? " · revisar" : "";
     return `
         <li>
             <strong>${escapeHtml(unit.label)}</strong>
-            <span>normaliza: ${escapeHtml(unit.normalizedUnit)} · ${escapeHtml(factor)}${review}</span>
+            <span>${escapeHtml(equivalence)}${review}</span>
         </li>
     `;
 }
@@ -108,22 +145,29 @@ function renderControlledBaseOptions(setting) {
     ].join("");
 }
 
-function renderControlledUnitOption(setting, baseLabel, definition) {
+function renderControlledUnitOption(setting, definition) {
     const currentUnit = findCurrentControlledUnit(setting, definition.label);
-    const deterministicFactor = getDeterministicFactorToBase(baseLabel, definition.label);
-    const factor = deterministicFactor || currentUnit?.factorToBase || "";
     const selected = Boolean(currentUnit);
     return `
-        <div class="item-unit-controlled-option" data-controlled-unit-row="${escapeHtml(definition.label)}">
-            <label class="item-unit-controlled-check">
-                <input type="checkbox" value="${escapeHtml(definition.label)}" data-controlled-unit ${selected ? "checked" : ""}>
-                <strong>${escapeHtml(definition.label)}</strong>
-            </label>
-            <label>Fator para a base
-                <input type="text" inputmode="decimal" autocomplete="off" data-unit-factor="${escapeHtml(definition.label)}"
-                    value="${escapeHtml(factor)}" ${selected ? "" : "disabled"} ${deterministicFactor ? "readonly" : ""} placeholder="Obrigatório">
-            </label>
-            <small data-unit-factor-help>${deterministicFactor ? "Fator matemático automático." : "Informe a equivalência deste item."}</small>
+        <label class="item-unit-chip" data-controlled-unit-chip="${escapeHtml(definition.label)}">
+            <input type="checkbox" value="${escapeHtml(definition.label)}" data-controlled-unit ${selected ? "checked" : ""}>
+            <span>${escapeHtml(definition.label)}</span>
+        </label>
+    `;
+}
+
+function renderControlledEquivalence(setting, baseLabel, definition) {
+    const currentUnit = findCurrentControlledUnit(setting, definition.label);
+    const equivalence = buildUnitEquivalenceView(baseLabel, definition.label, currentUnit?.factorToBase);
+    return `
+        <div class="item-unit-equivalence" data-controlled-unit-row="${escapeHtml(definition.label)}" ${currentUnit ? "" : "hidden"}>
+            <span>1 <strong>${escapeHtml(definition.label)}</strong> =</span>
+            <input type="text" inputmode="decimal" autocomplete="off" data-unit-factor="${escapeHtml(definition.label)}"
+                aria-label="Equivalência de ${escapeHtml(definition.label)}" value="${escapeHtml(equivalence.value)}"
+                ${currentUnit ? "" : "disabled"} ${equivalence.isAutomatic ? "hidden readonly" : ""} placeholder="valor">
+            <output data-unit-factor-output ${equivalence.isAutomatic ? "" : "hidden"}>${escapeHtml(equivalence.value)}</output>
+            <strong data-equivalence-base>${escapeHtml(baseLabel || "base")}</strong>
+            <small data-unit-factor-help>${escapeHtml(equivalence.help)}</small>
         </div>
     `;
 }
@@ -158,9 +202,16 @@ function renderControlledEditor(setting) {
             <label>Unidade base
                 <select name="baseUnit" data-controlled-base required>${renderControlledBaseOptions(setting)}</select>
             </label>
+            <p class="item-unit-base-help">A unidade base é a unidade usada no total final. As outras unidades são convertidas para ela.</p>
             <div class="item-unit-controlled-units">
                 <span>Unidades permitidas</span>
-                ${CONTROLLED_ITEM_UNIT_CATALOG.map((unit) => renderControlledUnitOption(setting, baseLabel, unit)).join("")}
+                <div class="item-unit-chips">
+                    ${CONTROLLED_ITEM_UNIT_CATALOG.map((unit) => renderControlledUnitOption(setting, unit)).join("")}
+                </div>
+            </div>
+            <div class="item-unit-equivalences">
+                <span>Equivalências</span>
+                ${CONTROLLED_ITEM_UNIT_CATALOG.map((unit) => renderControlledEquivalence(setting, baseLabel, unit)).join("")}
             </div>
             <label>Unidade padrão ao contar
                 <select name="defaultInputUnit" data-controlled-default required>${renderDefaultUnitOptions(setting)}</select>
@@ -188,18 +239,21 @@ function renderSettingCard(item, setting) {
                 <div><dt>Confiança</dt><dd>${escapeHtml(confidence)}</dd></div>
                 <div><dt>Revisão necessária</dt><dd>${needsReview ? "sim" : "não"}</dd></div>
             </dl>
-            <h5>Perfil atual</h5>
-            ${setting?.allowedUnits.length
-        ? `<ul class="item-unit-allowed-list">${setting.allowedUnits.map(renderAllowedUnit).join("")}</ul>`
+            <details class="item-unit-current-profile">
+                <summary>Ver perfil atual</summary>
+                ${setting?.allowedUnits.length
+        ? `<ul class="item-unit-allowed-list">${setting.allowedUnits.map((unit) => renderAllowedUnit(unit, setting.baseUnit)).join("")}</ul>`
         : '<p class="item-unit-empty">Nenhum perfil automático encontrado.</p>'}
+            </details>
             ${renderLegacyUnitNotice(setting)}
-            <details class="item-unit-editor">
+            <details class="item-unit-editor" open>
                 <summary>Configurar perfil controlado</summary>
                 <form class="item-unit-form" data-item-unit-form data-item-code="${escapeHtml(item.code)}"
                     data-factor-base="${escapeHtml(resolveControlledBaseLabel(setting))}">
                     ${renderControlledEditor(setting)}
                     <div class="item-unit-actions">
-                        <button type="submit">Salvar perfil controlado</button>
+                        <button type="submit">Salvar</button>
+                        <button type="submit" data-save-and-next>Salvar e próximo</button>
                         <button type="button" data-clear-item-unit="${escapeHtml(item.code)}" ${setting?.source === "manual" ? "" : "disabled"}>Limpar configuração</button>
                     </div>
                 </form>
@@ -208,20 +262,22 @@ function renderSettingCard(item, setting) {
     `;
 }
 
-function renderGroup(group, settingsByItem) {
-    const matchingItems = (group.items || []).filter((item) => {
-        const setting = settingsByItem.get(item.code);
-        return matchesSearch(item, group) && matchesProfileFilter(setting);
-    });
-    if (matchingItems.length === 0) return "";
-    const shouldOpen = itemSearchQuery || activeProfileFilter !== "all";
+function renderActiveItem(entry, itemIndex, itemCount) {
+    const isFirstItem = itemIndex === 0;
+    const isLastItem = itemIndex === itemCount - 1;
     return `
-        <details class="item-unit-group" ${shouldOpen ? "open" : ""}>
-            <summary>${escapeHtml(group.name)} — ${matchingItems.length} item(ns)</summary>
-            <div class="item-unit-list">
-                ${matchingItems.map((item) => renderSettingCard(item, settingsByItem.get(item.code))).join("")}
-            </div>
-        </details>
+        <section class="item-unit-sequence" data-active-item-code="${escapeHtml(entry.item.code)}">
+            <header class="item-unit-sequence-header">
+                <strong>Item ${itemIndex + 1} de ${itemCount}</strong>
+                <span>Grupo: ${escapeHtml(entry.group.name)}</span>
+            </header>
+            ${renderSettingCard(entry.item, entry.setting)}
+            <nav class="item-unit-navigation" aria-label="Navegação entre itens">
+                <button type="button" data-previous-item ${isFirstItem ? "disabled" : ""}>Anterior</button>
+                <span>Item ${itemIndex + 1} de ${itemCount}</span>
+                <button type="button" data-next-item ${isLastItem ? "disabled" : ""}>Próximo</button>
+            </nav>
+        </section>
     `;
 }
 
@@ -240,11 +296,35 @@ function renderItems() {
         container.innerHTML = "";
         return;
     }
-    const settingsByItem = new Map(currentViewModel.settings.map((setting) => [setting.itemCode, setting]));
-    const content = template.groups.map((group) => renderGroup(group, settingsByItem)).join("");
-    container.innerHTML = content || '<p class="item-unit-empty">Nenhum item encontrado neste filtro.</p>';
-    container.querySelectorAll("[data-item-unit-form]").forEach((form) => synchronizeControlledForm(form));
+    currentNavigationItems = buildItemUnitNavigationItems(
+        template,
+        currentViewModel.settings,
+        itemSearchQuery,
+        activeProfileFilter
+    );
+    activeItemIndex = clampItemUnitNavigationIndex(activeItemIndex, currentNavigationItems.length);
+    const activeEntry = currentNavigationItems[activeItemIndex];
+    container.innerHTML = activeEntry
+        ? renderActiveItem(activeEntry, activeItemIndex, currentNavigationItems.length)
+        : '<p class="item-unit-empty">Nenhum item encontrado neste filtro.</p>';
+    const form = container.querySelector("[data-item-unit-form]");
+    if (form) synchronizeControlledForm(form);
     updateFilterButtons();
+}
+
+function focusActiveItem() {
+    getElement("item-unit-groups").querySelector(".item-unit-sequence-header")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+    });
+}
+
+function moveActiveItem(offset) {
+    const nextIndex = clampItemUnitNavigationIndex(activeItemIndex + offset, currentNavigationItems.length);
+    if (nextIndex === activeItemIndex) return;
+    activeItemIndex = nextIndex;
+    renderItems();
+    focusActiveItem();
 }
 
 function findControlledCheckbox(form, label) {
@@ -268,12 +348,22 @@ function isPositiveFactor(value) {
 function updateFactorField(form, checkbox) {
     const baseLabel = form.elements.baseUnit.value;
     const factorInput = form.querySelector(`[data-unit-factor="${checkbox.value}"]`);
-    const help = factorInput.closest("[data-controlled-unit-row]").querySelector("[data-unit-factor-help]");
-    const deterministicFactor = getDeterministicFactorToBase(baseLabel, checkbox.value);
+    const row = factorInput.closest("[data-controlled-unit-row]");
+    const help = row.querySelector("[data-unit-factor-help]");
+    const chip = form.querySelector(`[data-controlled-unit-chip="${checkbox.value}"]`);
+    const factorOutput = row.querySelector("[data-unit-factor-output]");
+    const equivalence = buildUnitEquivalenceView(baseLabel, checkbox.value, factorInput.value);
+    checkbox.disabled = Boolean(baseLabel) && checkbox.value === baseLabel;
+    row.hidden = !checkbox.checked;
+    chip.dataset.selected = String(checkbox.checked);
     factorInput.disabled = !checkbox.checked;
-    factorInput.readOnly = Boolean(deterministicFactor);
-    if (checkbox.checked && deterministicFactor) factorInput.value = deterministicFactor;
-    help.textContent = deterministicFactor ? "Fator matemático automático." : "Informe a equivalência deste item.";
+    factorInput.readOnly = equivalence.isAutomatic;
+    factorInput.hidden = equivalence.isAutomatic;
+    factorOutput.hidden = !equivalence.isAutomatic;
+    factorOutput.textContent = equivalence.value;
+    if (checkbox.checked && equivalence.isAutomatic) factorInput.value = equivalence.value;
+    row.querySelector("[data-equivalence-base]").textContent = baseLabel || "base";
+    help.textContent = equivalence.help;
 }
 
 function updateFormReviewState(form) {
@@ -287,12 +377,12 @@ function updateFormReviewState(form) {
     if (missingFactor) {
         reviewInput.checked = true;
         reviewInput.disabled = true;
-        status.textContent = "Há unidade sem fator. O perfil poderá ser salvo, mas continuará pendente.";
+        status.textContent = "Há unidade sem equivalência. O perfil poderá ser salvo, mas continuará pendente.";
         status.dataset.tone = "warning";
         return;
     }
     reviewInput.disabled = false;
-    status.textContent = selectedCheckboxes.length ? "Todos os fatores selecionados estão definidos." : "Selecione as unidades permitidas.";
+    status.textContent = selectedCheckboxes.length ? "Todas as equivalências selecionadas estão definidas." : "Selecione as unidades permitidas.";
     status.dataset.tone = selectedCheckboxes.length ? "success" : "warning";
 }
 
@@ -336,6 +426,7 @@ export function renderItemUnitSettings(viewModel) {
     if (previousTemplateId !== viewModel.selectedTemplate?.id) {
         itemSearchQuery = "";
         activeProfileFilter = "all";
+        activeItemIndex = 0;
     }
     renderTemplateOptions(viewModel);
     const hasTemplate = Boolean(viewModel.selectedTemplate);
@@ -358,12 +449,14 @@ export function connectItemUnitSettingsEvents(handlers) {
     getElement("btn-analyze-item-units").addEventListener("click", handlers.onAnalyze);
     getElement("item-unit-search").addEventListener("input", (event) => {
         itemSearchQuery = event.target.value;
+        activeItemIndex = 0;
         renderItems();
     });
     getElement("item-unit-filters").addEventListener("click", (event) => {
         const button = event.target.closest("[data-item-unit-filter]");
         if (!button) return;
         activeProfileFilter = button.dataset.itemUnitFilter;
+        activeItemIndex = 0;
         renderItems();
     });
     getElement("item-unit-groups").addEventListener("change", (event) => {
@@ -380,9 +473,28 @@ export function connectItemUnitSettingsEvents(handlers) {
         const form = event.target.closest("[data-item-unit-form]");
         if (!form) return;
         event.preventDefault();
-        await handlers.onSaveManual(form.dataset.itemCode, collectControlledFormValues(form));
+        const shouldAdvance = Boolean(event.submitter?.matches("[data-save-and-next]"));
+        const nextItemCode = currentNavigationItems[activeItemIndex + 1]?.item.code || "";
+        const didSave = await handlers.onSaveManual(form.dataset.itemCode, collectControlledFormValues(form));
+        if (!shouldAdvance || !didSave) return;
+        activeItemIndex = resolveItemUnitIndexAfterSave(
+            currentNavigationItems,
+            activeItemIndex,
+            nextItemCode,
+            didSave
+        );
+        renderItems();
+        focusActiveItem();
     });
     getElement("item-unit-groups").addEventListener("click", async (event) => {
+        if (event.target.closest("[data-previous-item]")) {
+            moveActiveItem(-1);
+            return;
+        }
+        if (event.target.closest("[data-next-item]")) {
+            moveActiveItem(1);
+            return;
+        }
         const button = event.target.closest("[data-clear-item-unit]");
         if (!button || button.disabled) return;
         await handlers.onClearManual(button.dataset.clearItemUnit);
