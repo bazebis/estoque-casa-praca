@@ -10,6 +10,10 @@ let itemSearchQuery = "";
 let activeProfileFilter = "all";
 let activeItemIndex = 0;
 let currentNavigationItems = [];
+let editorInitialValues = "";
+let editorReturnFocus = null;
+let pendingDiscardAction = null;
+let pendingDiscardCancellation = null;
 
 const sourceLabels = {
     manual: "manual",
@@ -58,12 +62,19 @@ function renderTemplateOptions(viewModel) {
 
 function renderSummary(summary) {
     getElement("item-unit-summary").innerHTML = `
-        <div><dt>Total de itens</dt><dd>${summary.itemCount}</dd></div>
-        <div><dt>Perfis completos</dt><dd>${summary.completeProfileCount}</dd></div>
-        <div><dt>Revisão necessária</dt><dd>${summary.needsReviewCount}</dd></div>
-        <div><dt>Sem perfil</dt><dd>${summary.withoutProfileCount}</dd></div>
-        <div><dt>Pacote ambíguo</dt><dd>${summary.ambiguousPackageCount}</dd></div>
-        <div><dt>Porção sem peso</dt><dd>${summary.portionWithoutWeightCount}</dd></div>
+        <p class="item-unit-summary-primary">
+            <strong>${summary.itemCount} itens</strong>
+            <span>${summary.completeProfileCount} prontos</span>
+            <span>${summary.needsReviewCount} revisar</span>
+        </p>
+        <details class="item-unit-summary-details">
+            <summary>Ver detalhes</summary>
+            <dl>
+                <div><dt>Sem perfil</dt><dd>${summary.withoutProfileCount}</dd></div>
+                <div><dt>Pacote ambíguo</dt><dd>${summary.ambiguousPackageCount}</dd></div>
+                <div><dt>Porção sem peso</dt><dd>${summary.portionWithoutWeightCount}</dd></div>
+            </dl>
+        </details>
     `;
 }
 
@@ -136,7 +147,7 @@ function resolveControlledBaseLabel(setting) {
 function renderControlledBaseOptions(setting) {
     const currentBase = resolveControlledBaseLabel(setting);
     return [
-        '<option value="">Escolha a unidade base</option>',
+        '<option value="">Escolha a unidade usada no total</option>',
         ...CONTROLLED_ITEM_UNIT_CATALOG.map((unit) => `
             <option value="${escapeHtml(unit.label)}" ${unit.label === currentBase ? "selected" : ""}>
                 ${escapeHtml(unit.label)}
@@ -198,11 +209,11 @@ function renderControlledEditor(setting) {
     const baseLabel = resolveControlledBaseLabel(setting);
     return `
         <fieldset class="item-unit-controlled-fields">
-            <legend>Perfil controlado</legend>
-            <label>Unidade base
+            <legend>Unidades e equivalências</legend>
+            <label>Unidade usada no total
                 <select name="baseUnit" data-controlled-base required>${renderControlledBaseOptions(setting)}</select>
             </label>
-            <p class="item-unit-base-help">A unidade base é a unidade usada no total final. As outras unidades são convertidas para ela.</p>
+            <p class="item-unit-base-help">As outras unidades são convertidas para esta.</p>
             <div class="item-unit-controlled-units">
                 <span>Unidades permitidas</span>
                 <div class="item-unit-chips">
@@ -225,40 +236,82 @@ function renderControlledEditor(setting) {
     `;
 }
 
+function formatAllowedUnits(setting) {
+    const labels = (setting?.allowedUnits || []).map((unit) => unit.label);
+    return labels.length ? labels.join(", ") : "—";
+}
+
 function renderSettingCard(item, setting) {
-    const source = sourceLabels[setting?.source] || sourceLabels.unknown;
-    const confidence = confidenceLabels[setting?.confidence] || confidenceLabels.unknown;
     const needsReview = doesItemUnitProfileNeedReview(setting);
     return `
         <article class="item-unit-card">
-            <header><strong>${escapeHtml(item.name)}</strong><span>Código: ${escapeHtml(item.code)}</span></header>
+            <header>
+                <div><strong>${escapeHtml(item.name)}</strong><span>Código: ${escapeHtml(item.code)}</span></div>
+                <span class="item-unit-status" data-tone="${needsReview ? "warning" : "success"}">
+                    ${needsReview ? "Revisar" : "Pronto"}
+                </span>
+            </header>
             <dl class="item-unit-metadata">
-                <div><dt>Unidade base atual</dt><dd>${escapeHtml(setting?.baseUnit || "—")}</dd></div>
-                <div><dt>Padrão atual</dt><dd><strong>${escapeHtml(setting?.defaultInputUnit || "—")}</strong></dd></div>
+                <div><dt>Unidade usada no total</dt><dd>${escapeHtml(setting?.baseUnit || "—")}</dd></div>
+                <div><dt>Padrão ao contar</dt><dd><strong>${escapeHtml(setting?.defaultInputUnit || "—")}</strong></dd></div>
+                <div class="item-unit-metadata-wide"><dt>Permitidas</dt><dd>${escapeHtml(formatAllowedUnits(setting))}</dd></div>
+            </dl>
+            <button type="button" class="item-unit-edit-button" data-edit-item-unit>Editar unidades</button>
+        </article>
+    `;
+}
+
+function renderTechnicalDetails(setting) {
+    const source = sourceLabels[setting?.source] || sourceLabels.unknown;
+    const confidence = confidenceLabels[setting?.confidence] || confidenceLabels.unknown;
+    const allowedUnits = setting?.allowedUnits || [];
+    return `
+        <details class="item-unit-technical-details">
+            <summary>Detalhes técnicos</summary>
+            <dl>
                 <div><dt>Origem</dt><dd>${escapeHtml(source)}</dd></div>
                 <div><dt>Confiança</dt><dd>${escapeHtml(confidence)}</dd></div>
-                <div><dt>Revisão necessária</dt><dd>${needsReview ? "sim" : "não"}</dd></div>
+                <div><dt>Estado</dt><dd>${doesItemUnitProfileNeedReview(setting) ? "revisar" : "resolvido"}</dd></div>
             </dl>
-            <details class="item-unit-current-profile">
-                <summary>Ver perfil atual</summary>
-                ${setting?.allowedUnits.length
-        ? `<ul class="item-unit-allowed-list">${setting.allowedUnits.map((unit) => renderAllowedUnit(unit, setting.baseUnit)).join("")}</ul>`
+            ${allowedUnits.length
+        ? `<ul class="item-unit-allowed-list">${allowedUnits.map((unit) => renderAllowedUnit(unit, setting.baseUnit)).join("")}</ul>`
         : '<p class="item-unit-empty">Nenhum perfil automático encontrado.</p>'}
-            </details>
             ${renderLegacyUnitNotice(setting)}
-            <details class="item-unit-editor" open>
-                <summary>Configurar perfil controlado</summary>
-                <form class="item-unit-form" data-item-unit-form data-item-code="${escapeHtml(item.code)}"
-                    data-factor-base="${escapeHtml(resolveControlledBaseLabel(setting))}">
-                    ${renderControlledEditor(setting)}
-                    <div class="item-unit-actions">
-                        <button type="submit">Salvar</button>
-                        <button type="submit" data-save-and-next>Salvar e próximo</button>
-                        <button type="button" data-clear-item-unit="${escapeHtml(item.code)}" ${setting?.source === "manual" ? "" : "disabled"}>Limpar configuração</button>
-                    </div>
-                </form>
-            </details>
-        </article>
+        </details>
+    `;
+}
+
+function renderEditorSurface(entry, itemIndex, itemCount) {
+    const setting = entry.setting;
+    return `
+        <header class="item-unit-editor-header">
+            <button type="button" class="item-unit-editor-close" data-close-item-unit-editor aria-label="Fechar editor">Voltar</button>
+            <div>
+                <span>Item ${itemIndex + 1} de ${itemCount} · ${escapeHtml(entry.group.name)}</span>
+                <h3 id="item-unit-editor-title">${escapeHtml(entry.item.name)}</h3>
+                <small>Código: ${escapeHtml(entry.item.code)}</small>
+            </div>
+            <span class="item-unit-unsaved" data-item-unit-unsaved hidden>Não salvo</span>
+        </header>
+        <div class="item-unit-editor-scroll">
+            <form class="item-unit-form" data-item-unit-form data-item-code="${escapeHtml(entry.item.code)}"
+                data-factor-base="${escapeHtml(resolveControlledBaseLabel(setting))}">
+                ${renderControlledEditor(setting)}
+                ${renderTechnicalDetails(setting)}
+                <p class="item-unit-editor-feedback" data-item-unit-editor-feedback aria-live="polite"></p>
+                <div class="item-unit-actions">
+                    <button type="submit">Salvar</button>
+                    <button type="submit" data-save-and-next>Salvar e próximo</button>
+                    <button type="button" class="item-unit-clear-button" data-clear-item-unit="${escapeHtml(entry.item.code)}"
+                        ${setting?.source === "manual" ? "" : "disabled"}>Limpar configuração</button>
+                </div>
+            </form>
+        </div>
+        <nav class="item-unit-editor-navigation" aria-label="Navegação no editor">
+            <button type="button" data-editor-previous-item ${itemIndex === 0 ? "disabled" : ""}>Anterior</button>
+            <span>Item ${itemIndex + 1} de ${itemCount}</span>
+            <button type="button" data-editor-next-item ${itemIndex === itemCount - 1 ? "disabled" : ""}>Próximo</button>
+        </nav>
     `;
 }
 
@@ -307,8 +360,6 @@ function renderItems() {
     container.innerHTML = activeEntry
         ? renderActiveItem(activeEntry, activeItemIndex, currentNavigationItems.length)
         : '<p class="item-unit-empty">Nenhum item encontrado neste filtro.</p>';
-    const form = container.querySelector("[data-item-unit-form]");
-    if (form) synchronizeControlledForm(form);
     updateFilterButtons();
 }
 
@@ -319,12 +370,112 @@ function focusActiveItem() {
     });
 }
 
-function moveActiveItem(offset) {
+function moveActiveItem(offset, shouldFocusQueue = true) {
     const nextIndex = clampItemUnitNavigationIndex(activeItemIndex + offset, currentNavigationItems.length);
     if (nextIndex === activeItemIndex) return;
     activeItemIndex = nextIndex;
     renderItems();
-    focusActiveItem();
+    if (shouldFocusQueue) focusActiveItem();
+}
+
+function getEditorDialog() {
+    return getElement("item-unit-editor-dialog");
+}
+
+function getEditorForm() {
+    return getElement("item-unit-editor-surface").querySelector("[data-item-unit-form]");
+}
+
+function getCurrentEditorValues() {
+    const form = getEditorForm();
+    return form ? JSON.stringify(collectControlledFormValues(form)) : "";
+}
+
+export function hasItemUnitFormChanged(initialValues, currentValues) {
+    return String(initialValues || "") !== String(currentValues || "");
+}
+
+function isEditorDirty() {
+    return getEditorDialog().open && hasItemUnitFormChanged(editorInitialValues, getCurrentEditorValues());
+}
+
+function updateEditorDirtyIndicator() {
+    const indicator = getElement("item-unit-editor-surface").querySelector("[data-item-unit-unsaved]");
+    if (indicator) indicator.hidden = !isEditorDirty();
+}
+
+function rememberEditorState() {
+    editorInitialValues = getCurrentEditorValues();
+    updateEditorDirtyIndicator();
+}
+
+function renderCurrentEditor() {
+    const entry = currentNavigationItems[activeItemIndex];
+    if (!entry) return false;
+    const surface = getElement("item-unit-editor-surface");
+    surface.innerHTML = renderEditorSurface(entry, activeItemIndex, currentNavigationItems.length);
+    synchronizeControlledForm(getEditorForm());
+    rememberEditorState();
+    return true;
+}
+
+function lockPageForEditor() {
+    document.body.classList.add("item-unit-editor-open");
+}
+
+function unlockPageAfterEditor() {
+    document.body.classList.remove("item-unit-editor-open");
+}
+
+function openCurrentEditor(trigger) {
+    if (!renderCurrentEditor()) return;
+    editorReturnFocus = trigger || document.activeElement;
+    lockPageForEditor();
+    getEditorDialog().showModal();
+    getElement("item-unit-editor-surface").querySelector("[data-close-item-unit-editor]")?.focus();
+}
+
+function closeCurrentEditor() {
+    editorInitialValues = "";
+    getEditorDialog().close();
+    unlockPageAfterEditor();
+    const fallbackFocus = getElement("item-unit-groups").querySelector("[data-edit-item-unit]");
+    (editorReturnFocus?.isConnected ? editorReturnFocus : fallbackFocus)?.focus();
+    editorReturnFocus = null;
+}
+
+function requestDiscardChanges(action, cancellation = null) {
+    if (!isEditorDirty()) {
+        action();
+        return;
+    }
+    pendingDiscardAction = action;
+    pendingDiscardCancellation = cancellation;
+    getElement("item-unit-discard-dialog").showModal();
+}
+
+function continueEditing() {
+    pendingDiscardCancellation?.();
+    pendingDiscardAction = null;
+    pendingDiscardCancellation = null;
+    getElement("item-unit-discard-dialog").close();
+    getEditorForm()?.querySelector("input:not([disabled]), select:not([disabled])")?.focus();
+}
+
+async function discardChanges() {
+    const action = pendingDiscardAction;
+    pendingDiscardAction = null;
+    pendingDiscardCancellation = null;
+    editorInitialValues = getCurrentEditorValues();
+    getElement("item-unit-discard-dialog").close();
+    await action?.();
+}
+
+function moveInsideEditor(offset) {
+    requestDiscardChanges(() => {
+        moveActiveItem(offset, false);
+        renderCurrentEditor();
+    });
 }
 
 function findControlledCheckbox(form, label) {
@@ -444,39 +595,85 @@ export function showItemUnitSettingsFeedback(message, tone = "") {
     feedback.dataset.tone = tone;
 }
 
-export function connectItemUnitSettingsEvents(handlers) {
-    getElement("item-unit-template").addEventListener("change", (event) => handlers.onSelectTemplate(event.target.value));
+function connectItemUnitQueueControlEvents(handlers) {
+    getElement("item-unit-template").addEventListener("change", (event) => {
+        const nextTemplateId = event.target.value;
+        requestDiscardChanges(async () => {
+            if (getEditorDialog().open) closeCurrentEditor();
+            await handlers.onSelectTemplate(nextTemplateId);
+        }, () => {
+            event.target.value = currentViewModel?.selectedTemplate?.id || "";
+        });
+    });
     getElement("btn-analyze-item-units").addEventListener("click", handlers.onAnalyze);
     getElement("item-unit-search").addEventListener("input", (event) => {
-        itemSearchQuery = event.target.value;
-        activeItemIndex = 0;
-        renderItems();
+        const nextQuery = event.target.value;
+        requestDiscardChanges(() => {
+            if (getEditorDialog().open) closeCurrentEditor();
+            itemSearchQuery = nextQuery;
+            activeItemIndex = 0;
+            renderItems();
+        }, () => {
+            event.target.value = itemSearchQuery;
+        });
     });
     getElement("item-unit-filters").addEventListener("click", (event) => {
         const button = event.target.closest("[data-item-unit-filter]");
         if (!button) return;
-        activeProfileFilter = button.dataset.itemUnitFilter;
-        activeItemIndex = 0;
-        renderItems();
+        requestDiscardChanges(() => {
+            if (getEditorDialog().open) closeCurrentEditor();
+            activeProfileFilter = button.dataset.itemUnitFilter;
+            activeItemIndex = 0;
+            renderItems();
+        });
     });
-    getElement("item-unit-groups").addEventListener("change", (event) => {
+}
+
+function connectItemUnitQueueNavigationEvents() {
+    getElement("item-unit-groups").addEventListener("click", (event) => {
+        const editButton = event.target.closest("[data-edit-item-unit]");
+        if (editButton) {
+            openCurrentEditor(editButton);
+            return;
+        }
+        if (event.target.closest("[data-previous-item]")) moveActiveItem(-1);
+        if (event.target.closest("[data-next-item]")) moveActiveItem(1);
+    });
+}
+
+function connectItemUnitEditorFieldEvents() {
+    getElement("item-unit-editor-surface").addEventListener("change", (event) => {
         const form = event.target.closest("[data-item-unit-form]");
         if (!form) return;
         if (event.target.matches("[data-controlled-base]")) resetFactorsForBaseChange(form);
         synchronizeControlledForm(form);
+        updateEditorDirtyIndicator();
     });
-    getElement("item-unit-groups").addEventListener("input", (event) => {
+    getElement("item-unit-editor-surface").addEventListener("input", (event) => {
         const form = event.target.closest("[data-item-unit-form]");
         if (form && event.target.matches("[data-unit-factor]")) updateFormReviewState(form);
+        if (form) updateEditorDirtyIndicator();
     });
-    getElement("item-unit-groups").addEventListener("submit", async (event) => {
+}
+
+function connectItemUnitEditorSubmitEvent(handlers) {
+    getElement("item-unit-editor-surface").addEventListener("submit", async (event) => {
         const form = event.target.closest("[data-item-unit-form]");
         if (!form) return;
         event.preventDefault();
         const shouldAdvance = Boolean(event.submitter?.matches("[data-save-and-next]"));
         const nextItemCode = currentNavigationItems[activeItemIndex + 1]?.item.code || "";
         const didSave = await handlers.onSaveManual(form.dataset.itemCode, collectControlledFormValues(form));
-        if (!shouldAdvance || !didSave) return;
+        if (!didSave) {
+            form.querySelector("[data-item-unit-editor-feedback]").textContent = getElement("item-unit-feedback").textContent;
+            updateEditorDirtyIndicator();
+            return;
+        }
+        rememberEditorState();
+        if (!shouldAdvance) {
+            closeCurrentEditor();
+            return;
+        }
         activeItemIndex = resolveItemUnitIndexAfterSave(
             currentNavigationItems,
             activeItemIndex,
@@ -484,19 +681,64 @@ export function connectItemUnitSettingsEvents(handlers) {
             didSave
         );
         renderItems();
-        focusActiveItem();
+        if (!renderCurrentEditor()) closeCurrentEditor();
     });
-    getElement("item-unit-groups").addEventListener("click", async (event) => {
-        if (event.target.closest("[data-previous-item]")) {
-            moveActiveItem(-1);
+}
+
+function connectItemUnitEditorNavigationEvents(handlers) {
+    getElement("item-unit-editor-surface").addEventListener("click", (event) => {
+        if (event.target.closest("[data-close-item-unit-editor]")) {
+            requestDiscardChanges(closeCurrentEditor);
             return;
         }
-        if (event.target.closest("[data-next-item]")) {
-            moveActiveItem(1);
+        if (event.target.closest("[data-editor-previous-item]")) {
+            moveInsideEditor(-1);
+            return;
+        }
+        if (event.target.closest("[data-editor-next-item]")) {
+            moveInsideEditor(1);
             return;
         }
         const button = event.target.closest("[data-clear-item-unit]");
         if (!button || button.disabled) return;
-        await handlers.onClearManual(button.dataset.clearItemUnit);
+        requestDiscardChanges(async () => {
+            renderCurrentEditor();
+            const didClear = await handlers.onClearManual(button.dataset.clearItemUnit);
+            if (didClear) closeCurrentEditor();
+        });
     });
+}
+
+export function connectItemUnitSettingsEvents(handlers) {
+    connectItemUnitQueueControlEvents(handlers);
+    connectItemUnitQueueNavigationEvents();
+    connectItemUnitEditorFieldEvents();
+    connectItemUnitEditorSubmitEvent(handlers);
+    connectItemUnitEditorNavigationEvents(handlers);
+    connectItemUnitDialogEvents();
+    window.addEventListener("beforeunload", protectUnsavedItemUnitChanges);
+}
+
+function connectItemUnitDialogEvents() {
+    const editorDialog = getEditorDialog();
+    editorDialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        requestDiscardChanges(closeCurrentEditor);
+    });
+    editorDialog.addEventListener("click", (event) => {
+        if (event.target === editorDialog) requestDiscardChanges(closeCurrentEditor);
+    });
+    const discardDialog = getElement("item-unit-discard-dialog");
+    discardDialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        continueEditing();
+    });
+    discardDialog.querySelector("[data-continue-item-unit-editing]").addEventListener("click", continueEditing);
+    discardDialog.querySelector("[data-discard-item-unit-changes]").addEventListener("click", discardChanges);
+}
+
+function protectUnsavedItemUnitChanges(event) {
+    if (!isEditorDirty()) return;
+    event.preventDefault();
+    event.returnValue = "";
 }

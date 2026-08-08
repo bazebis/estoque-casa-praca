@@ -398,7 +398,7 @@
                     <p>Importe primeiro um JSON em Templates de contagem.</p>
                 </div>
                 <div id="item-unit-workspace" hidden>
-                    <dl id="item-unit-summary" class="item-unit-summary"></dl>
+                    <div id="item-unit-summary" class="item-unit-summary"></div>
                     <label class="item-unit-search-field" for="item-unit-search">
                         Buscar por código, nome ou grupo
                         <input type="search" id="item-unit-search" autocomplete="off" placeholder="Digite para filtrar">
@@ -411,6 +411,21 @@
                     <div id="item-unit-groups" class="item-unit-groups"></div>
                 </div>
             </section>
+
+            <dialog id="item-unit-editor-dialog" class="item-unit-editor-dialog" aria-labelledby="item-unit-editor-title">
+                <div id="item-unit-editor-surface" class="item-unit-editor-surface"></div>
+            </dialog>
+
+            <dialog id="item-unit-discard-dialog" class="item-unit-discard-dialog" aria-labelledby="item-unit-discard-title">
+                <div class="item-unit-discard-content">
+                    <h3 id="item-unit-discard-title">Descartar alterações?</h3>
+                    <p>Este item possui alterações ainda não salvas.</p>
+                    <div class="item-unit-discard-actions">
+                        <button type="button" data-continue-item-unit-editing>Continuar editando</button>
+                        <button type="button" data-discard-item-unit-changes>Descartar alterações</button>
+                    </div>
+                </div>
+            </dialog>
 
             <section id="admin-section-locations" class="admin-section location-nodes-section" hidden>
                 <button type="button" class="admin-back-button">Voltar para configurações</button>

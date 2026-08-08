@@ -1221,14 +1221,14 @@ async function saveManualItemUnit(itemCode, overrides) {
         if (!profile) throw new Error("Item não encontrado no template selecionado.");
         const result = buildControlledItemUnitProfile(profile, overrides);
         if (!result.isValid) {
-            showItemUnitSettingsFeedback(result.error || "O perfil controlado está incompleto.", "warning");
+            showItemUnitSettingsFeedback(result.error || "A configuração de unidade está incompleta.", "warning");
             return false;
         }
         await saveItemUnitSetting(result.setting);
         await refreshItemUnitSettingsView();
         const message = result.isResolved
-            ? "Perfil controlado salvo e marcado como resolvido neste aparelho."
-            : `Perfil salvo, mas continua pendente. ${result.warnings[0] || "Revise a configuração."}`;
+            ? "Configuração de unidade salva e marcada como resolvida neste aparelho."
+            : `Configuração salva, mas continua pendente. ${result.warnings[0] || "Revise as unidades."}`;
         showItemUnitSettingsFeedback(message, result.isResolved ? "success" : "warning");
         return true;
     } catch (error) {
@@ -1238,13 +1238,15 @@ async function saveManualItemUnit(itemCode, overrides) {
 }
 
 async function clearManualItemUnit(itemCode) {
-    if (!window.confirm("Limpar a configuração manual deste item e voltar ao perfil automático?")) return;
+    if (!window.confirm("Limpar a configuração manual deste item e voltar ao perfil automático?")) return false;
     try {
         await deleteItemUnitSetting(selectedItemUnitTemplateId, itemCode);
         await refreshItemUnitSettingsView();
         showItemUnitSettingsFeedback("Configuração removida; o perfil automático voltou a valer.", "success");
+        return true;
     } catch {
         showItemUnitSettingsFeedback("Não foi possível limpar a unidade manual.", "error");
+        return false;
     }
 }
 
