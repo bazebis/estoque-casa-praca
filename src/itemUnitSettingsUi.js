@@ -261,7 +261,7 @@ function renderSettingCard(item, setting) {
     `;
 }
 
-function renderTechnicalDetails(setting) {
+function renderTechnicalDetails(setting, itemCode) {
     const source = sourceLabels[setting?.source] || sourceLabels.unknown;
     const confidence = confidenceLabels[setting?.confidence] || confidenceLabels.unknown;
     const allowedUnits = setting?.allowedUnits || [];
@@ -277,12 +277,16 @@ function renderTechnicalDetails(setting) {
         ? `<ul class="item-unit-allowed-list">${allowedUnits.map((unit) => renderAllowedUnit(unit, setting.baseUnit)).join("")}</ul>`
         : '<p class="item-unit-empty">Nenhum perfil automático encontrado.</p>'}
             ${renderLegacyUnitNotice(setting)}
+            <button type="button" class="item-unit-clear-button" data-clear-item-unit="${escapeHtml(itemCode)}"
+                ${setting?.source === "manual" ? "" : "disabled"}>Limpar configuração</button>
         </details>
     `;
 }
 
 function renderEditorSurface(entry, itemIndex, itemCount) {
     const setting = entry.setting;
+    const previousItemCode = currentNavigationItems[itemIndex - 1]?.item.code || "";
+    const nextItemCode = currentNavigationItems[itemIndex + 1]?.item.code || "";
     return `
         <header class="item-unit-editor-header">
             <button type="button" class="item-unit-editor-close" data-close-item-unit-editor aria-label="Fechar editor">Voltar</button>
@@ -294,23 +298,17 @@ function renderEditorSurface(entry, itemIndex, itemCount) {
             <span class="item-unit-unsaved" data-item-unit-unsaved hidden>Não salvo</span>
         </header>
         <div class="item-unit-editor-scroll">
-            <form class="item-unit-form" data-item-unit-form data-item-code="${escapeHtml(entry.item.code)}"
+            <form id="item-unit-editor-form" class="item-unit-form" data-item-unit-form data-item-code="${escapeHtml(entry.item.code)}"
                 data-factor-base="${escapeHtml(resolveControlledBaseLabel(setting))}">
                 ${renderControlledEditor(setting)}
-                ${renderTechnicalDetails(setting)}
+                ${renderTechnicalDetails(setting, entry.item.code)}
                 <p class="item-unit-editor-feedback" data-item-unit-editor-feedback aria-live="polite"></p>
-                <div class="item-unit-actions">
-                    <button type="submit">Salvar</button>
-                    <button type="submit" data-save-and-next>Salvar e próximo</button>
-                    <button type="button" class="item-unit-clear-button" data-clear-item-unit="${escapeHtml(entry.item.code)}"
-                        ${setting?.source === "manual" ? "" : "disabled"}>Limpar configuração</button>
-                </div>
             </form>
         </div>
-        <nav class="item-unit-editor-navigation" aria-label="Navegação no editor">
-            <button type="button" data-editor-previous-item ${itemIndex === 0 ? "disabled" : ""}>Anterior</button>
-            <span>Item ${itemIndex + 1} de ${itemCount}</span>
-            <button type="button" data-editor-next-item ${itemIndex === itemCount - 1 ? "disabled" : ""}>Próximo</button>
+        <nav class="item-unit-editor-actions" aria-label="Ações do editor">
+            <button type="button" data-editor-item-code="${escapeHtml(previousItemCode)}" ${previousItemCode ? "" : "disabled"}>Anterior</button>
+            <button type="submit" form="item-unit-editor-form">Salvar</button>
+            <button type="button" data-editor-item-code="${escapeHtml(nextItemCode)}" ${nextItemCode ? "" : "disabled"}>Próximo</button>
         </nav>
     `;
 }
@@ -471,9 +469,12 @@ async function discardChanges() {
     await action?.();
 }
 
-function moveInsideEditor(offset) {
+function moveInsideEditor(itemCode) {
     requestDiscardChanges(() => {
-        moveActiveItem(offset, false);
+        const nextIndex = currentNavigationItems.findIndex((entry) => entry.item.code === itemCode);
+        if (nextIndex < 0) return;
+        activeItemIndex = nextIndex;
+        renderItems();
         renderCurrentEditor();
     });
 }
@@ -661,27 +662,14 @@ function connectItemUnitEditorSubmitEvent(handlers) {
         const form = event.target.closest("[data-item-unit-form]");
         if (!form) return;
         event.preventDefault();
-        const shouldAdvance = Boolean(event.submitter?.matches("[data-save-and-next]"));
-        const nextItemCode = currentNavigationItems[activeItemIndex + 1]?.item.code || "";
         const didSave = await handlers.onSaveManual(form.dataset.itemCode, collectControlledFormValues(form));
         if (!didSave) {
             form.querySelector("[data-item-unit-editor-feedback]").textContent = getElement("item-unit-feedback").textContent;
             updateEditorDirtyIndicator();
             return;
         }
+        form.querySelector("[data-item-unit-editor-feedback]").textContent = getElement("item-unit-feedback").textContent;
         rememberEditorState();
-        if (!shouldAdvance) {
-            closeCurrentEditor();
-            return;
-        }
-        activeItemIndex = resolveItemUnitIndexAfterSave(
-            currentNavigationItems,
-            activeItemIndex,
-            nextItemCode,
-            didSave
-        );
-        renderItems();
-        if (!renderCurrentEditor()) closeCurrentEditor();
     });
 }
 
@@ -691,20 +679,17 @@ function connectItemUnitEditorNavigationEvents(handlers) {
             requestDiscardChanges(closeCurrentEditor);
             return;
         }
-        if (event.target.closest("[data-editor-previous-item]")) {
-            moveInsideEditor(-1);
-            return;
-        }
-        if (event.target.closest("[data-editor-next-item]")) {
-            moveInsideEditor(1);
+        const navigationButton = event.target.closest("[data-editor-item-code]");
+        if (navigationButton && !navigationButton.disabled) {
+            moveInsideEditor(navigationButton.dataset.editorItemCode);
             return;
         }
         const button = event.target.closest("[data-clear-item-unit]");
         if (!button || button.disabled) return;
+        const hadUnsavedChanges = isEditorDirty();
         requestDiscardChanges(async () => {
-            renderCurrentEditor();
             const didClear = await handlers.onClearManual(button.dataset.clearItemUnit);
-            if (didClear) closeCurrentEditor();
+            if (didClear || hadUnsavedChanges) closeCurrentEditor();
         });
     });
 }
