@@ -915,10 +915,18 @@ function connectItemUnitEditorNavigationEvents(handlers) {
         }
         const button = event.target.closest("[data-clear-item-unit]");
         if (!button || button.disabled) return;
-        const hadUnsavedChanges = isEditorDirty();
         requestDiscardChanges(async () => {
             const didClear = await handlers.onClearManual(button.dataset.clearItemUnit);
-            if (didClear || hadUnsavedChanges) closeCurrentEditor();
+            if (didClear === null) {
+                renderCurrentEditor();
+                return;
+            }
+            if (!didClear) {
+                renderCurrentEditor();
+                copyItemUnitFeedbackToEditor(getEditorForm());
+                return;
+            }
+            closeCurrentEditor();
         });
     });
 }

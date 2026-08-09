@@ -25,6 +25,7 @@ import {
 } from "./locationCountSessions.js";
 import {
     createLocationCountEntryModel,
+    hasActiveEntriesForItemInOpenSessions,
     normalizeLocationCountEntries,
     validateLocationCountEntry
 } from "./locationCountEntries.js";
@@ -1034,6 +1035,23 @@ async function saveItemUnitSettingsState(settings) {
     return normalizedSettings;
 }
 
+const activeEntryProfileMutationMessage = "Este item já possui lançamentos em uma contagem aberta. Remova os lançamentos ou finalize/cancele a contagem antes de alterar as unidades.";
+
+async function assertItemUnitProfileCanBeMutated(templateId, itemCode) {
+    const [sessions, entries] = await Promise.all([
+        listLocationCountSessions(),
+        listLocationCountEntries()
+    ]);
+    const hasActiveEntries = hasActiveEntriesForItemInOpenSessions({
+        templateId,
+        itemCode,
+        sessions,
+        entries
+    });
+
+    if (hasActiveEntries) throw new Error(activeEntryProfileMutationMessage);
+}
+
 export async function saveItemUnitSetting(setting) {
     const template = await getCountTemplate(setting?.templateId);
     const match = findTemplateItem(template, setting?.itemCode);
@@ -1053,6 +1071,7 @@ export async function saveItemUnitSetting(setting) {
     if (!validation.isValid) throw new Error(validation.error || "Configuração de unidade inválida.");
 
     const nextSettings = currentSettings.filter((item) => item.id !== validation.setting.id);
+    await assertItemUnitProfileCanBeMutated(validation.setting.templateId, validation.setting.itemCode);
     await saveItemUnitSettingsState([...nextSettings, validation.setting]);
     return validation.setting;
 }
@@ -1063,6 +1082,7 @@ export async function deleteItemUnitSetting(templateId, itemCode) {
     const remainingSettings = (await listItemUnitSettings()).filter((setting) => !(
         setting.templateId === normalizedTemplateId && setting.itemCode === normalizedItemCode
     ));
+    await assertItemUnitProfileCanBeMutated(normalizedTemplateId, normalizedItemCode);
     await saveItemUnitSettingsState(remainingSettings);
 }
 

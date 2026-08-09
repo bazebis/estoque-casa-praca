@@ -1238,14 +1238,14 @@ async function saveManualItemUnit(itemCode, overrides) {
 }
 
 async function clearManualItemUnit(itemCode) {
-    if (!window.confirm("Limpar a configuração manual deste item e voltar ao perfil automático?")) return false;
+    if (!window.confirm("Limpar a configuração manual deste item e voltar ao perfil automático?")) return null;
     try {
         await deleteItemUnitSetting(selectedItemUnitTemplateId, itemCode);
         await refreshItemUnitSettingsView();
         showItemUnitSettingsFeedback("Configuração removida; o perfil automático voltou a valer.", "success");
         return true;
-    } catch {
-        showItemUnitSettingsFeedback("Não foi possível limpar a unidade manual.", "error");
+    } catch (error) {
+        showItemUnitSettingsFeedback(error.message || "Não foi possível limpar a unidade manual.", "error");
         return false;
     }
 }

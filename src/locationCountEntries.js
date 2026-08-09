@@ -1,4 +1,7 @@
 import { normalizeUnitAlias } from "./itemUnitSettings.js";
+import { normalizeLocationCountSessions } from "./locationCountSessions.js";
+
+const openLocationCountSessionStatuses = new Set(["draft", "in_progress"]);
 
 function normalizeText(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ");
@@ -76,6 +79,26 @@ export function normalizeLocationCountEntry(entry, timestamp = new Date().toISOS
 export function normalizeLocationCountEntries(entries) {
     if (!Array.isArray(entries)) return [];
     return entries.map((entry) => normalizeLocationCountEntry(entry)).filter((entry) => entry?.id);
+}
+
+export function hasActiveEntriesForItemInOpenSessions({ templateId, itemCode, sessions, entries } = {}) {
+    const normalizedTemplateId = normalizeText(templateId);
+    const normalizedItemCode = normalizeText(itemCode);
+    if (!normalizedTemplateId || !normalizedItemCode) return false;
+
+    const openSessionIds = new Set(normalizeLocationCountSessions(sessions)
+        .filter((session) => (
+            session.templateId === normalizedTemplateId
+            && openLocationCountSessionStatuses.has(session.status)
+        ))
+        .map((session) => session.id));
+
+    return normalizeLocationCountEntries(entries).some((entry) => (
+        entry.active
+        && entry.templateId === normalizedTemplateId
+        && entry.itemCode === normalizedItemCode
+        && openSessionIds.has(entry.sessionId)
+    ));
 }
 
 function collectIdentityErrors(entry) {
