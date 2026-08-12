@@ -12,6 +12,10 @@ import {
     validateItemUnitSetting
 } from "./itemUnitSettings.js";
 import {
+    buildUnitProfileTemplateImportPlan,
+    mergeImportedItemUnitSettings
+} from "./itemUnitTemplatePortability.js";
+import {
     getLocationPath,
     normalizeLocationNodes,
     validateLocationNode
@@ -1084,6 +1088,57 @@ export async function deleteItemUnitSetting(templateId, itemCode) {
     ));
     await assertItemUnitProfileCanBeMutated(normalizedTemplateId, normalizedItemCode);
     await saveItemUnitSettingsState(remainingSettings);
+}
+
+function createTemplateImportError(plan) {
+    const error = new Error(plan.error || "Não foi possível validar o template e seus perfis de unidade.");
+    error.importPlan = plan;
+    return error;
+}
+
+export async function importCountTemplateWithUnitProfiles(payload, metadata = {}) {
+    const templateId = String(payload?.id || "").trim();
+    const [existingTemplate, currentSettings, sessions, entries] = await Promise.all([
+        getCountTemplate(templateId),
+        listItemUnitSettings(),
+        listLocationCountSessions(),
+        listLocationCountEntries()
+    ]);
+    const plan = buildUnitProfileTemplateImportPlan({
+        payload,
+        localSettings: currentSettings,
+        existingTemplate,
+        sessions,
+        entries
+    });
+
+    if (!plan.isValid) throw createTemplateImportError(plan);
+
+    // A consulta é repetida no limite de escrita para não abrir um atalho ao redor da guarda existente.
+    for (const setting of plan.settingsToApply) {
+        await assertItemUnitProfileCanBeMutated(setting.templateId, setting.itemCode);
+    }
+
+    const nextSettings = mergeImportedItemUnitSettings(currentSettings, plan.settingsToApply);
+    const importedTemplate = {
+        ...plan.template,
+        importedAt: metadata.importedAt || new Date().toISOString(),
+        importFileName: String(metadata.importFileName || "").trim()
+    };
+    let settingsWereSaved = false;
+
+    try {
+        if (plan.settingsToApply.length > 0) {
+            await saveItemUnitSettingsState(nextSettings);
+            settingsWereSaved = true;
+        }
+        const savedTemplate = await saveCountTemplate(importedTemplate);
+        return { ...plan, template: savedTemplate };
+    } catch (error) {
+        // O rollback preserva o estado anterior se a segunda persistência falhar tecnicamente.
+        if (settingsWereSaved) await saveItemUnitSettingsState(currentSettings);
+        throw error;
+    }
 }
 
 export async function listConsolidationSnapshots() {

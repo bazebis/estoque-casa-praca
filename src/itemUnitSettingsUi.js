@@ -88,6 +88,19 @@ function renderSummary(summary) {
     `;
 }
 
+function renderPortabilitySummary(summary) {
+    const container = getElement("item-unit-portability");
+    container.hidden = !summary;
+    if (!summary) return;
+
+    getElement("item-unit-portability-summary").textContent = [
+        `${summary.itemCount} itens`,
+        `${summary.explicitProfileCount} perfis explícitos`,
+        `${summary.remainingWithoutExplicitProfileCount} sem perfil explícito`,
+        `${summary.explicitNeedsReviewCount} ainda revisar`
+    ].join(" · ");
+}
+
 function matchesSearch(item, group, searchQuery) {
     const query = searchQuery.trim().toLocaleLowerCase("pt-BR");
     if (!query) return true;
@@ -758,6 +771,7 @@ export function renderItemUnitSettings(viewModel) {
     const hasTemplate = Boolean(viewModel.selectedTemplate);
     getElement("item-unit-no-template").hidden = hasTemplate;
     getElement("item-unit-workspace").hidden = !hasTemplate;
+    renderPortabilitySummary(hasTemplate ? viewModel.portabilitySummary : null);
     if (!hasTemplate) return;
     getElement("item-unit-search").value = itemSearchQuery;
     renderSummary(viewModel.summary);
@@ -782,6 +796,7 @@ function connectItemUnitQueueControlEvents(handlers) {
         });
     });
     getElement("btn-analyze-item-units").addEventListener("click", handlers.onAnalyze);
+    getElement("btn-download-template-with-units").addEventListener("click", handlers.onExportTemplate);
     getElement("item-unit-search").addEventListener("input", (event) => {
         const nextQuery = event.target.value;
         requestDiscardChanges(() => {

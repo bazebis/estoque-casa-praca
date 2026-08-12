@@ -1360,6 +1360,23 @@ textarea:focus-visible {
     color: #ffb3b3;
 }
 
+.item-unit-portability {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    background-color: var(--color-surface-raised);
+    border-radius: var(--radius-md);
+}
+
+.item-unit-portability p {
+    margin: 0 0 var(--space-2);
+    color: var(--color-text-muted);
+}
+
+.item-unit-portability button {
+    width: 100%;
+    margin: 0;
+}
+
 .item-unit-filters {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -82,6 +82,10 @@ import {
     summarizeItemUnitSettings
 } from "./itemUnitSettings.js";
 import {
+    buildUnitProfileTemplateExport,
+    formatSanitizedUnitTemplateFilename
+} from "./itemUnitTemplatePortability.js";
+import {
     connectItemUnitSettingsEvents,
     renderItemUnitSettings,
     showItemUnitSettingsFeedback
@@ -130,6 +134,7 @@ import {
     getItemLocationLink,
     getLocationCountSession,
     getStorageStatus,
+    importCountTemplateWithUnitProfiles,
     finalizeConsolidationSnapshot,
     initializeStorage,
     loadCatalog,
@@ -152,7 +157,6 @@ import {
     saveCatalog,
     saveCountingHistory,
     saveCountingDraft,
-    saveCountTemplate,
     saveConsolidationSnapshot,
     saveItemUnitSetting,
     saveItemLocationLink,
@@ -1173,11 +1177,15 @@ async function loadItemUnitSettingsContext() {
         || null;
     selectedItemUnitTemplateId = selectedTemplate?.id || null;
     const settings = resolveItemUnitSettings(selectedTemplate, savedSettings, entries);
+    const portability = selectedTemplate
+        ? buildUnitProfileTemplateExport(selectedTemplate, savedSettings)
+        : null;
     return {
         templates,
         selectedTemplate,
         settings,
-        summary: summarizeItemUnitSettings(selectedTemplate, settings)
+        summary: summarizeItemUnitSettings(selectedTemplate, settings),
+        portabilitySummary: portability?.summary || null
     };
 }
 
@@ -1211,6 +1219,31 @@ async function analyzeItemUnits() {
         );
     } catch {
         showItemUnitSettingsFeedback("Não foi possível atualizar as sugestões.", "error");
+    }
+}
+
+async function exportTemplateWithUnitProfiles() {
+    try {
+        const [template, explicitSettings] = await Promise.all([
+            getCountTemplate(selectedItemUnitTemplateId),
+            listItemUnitSettings()
+        ]);
+        if (!template) throw new Error("Selecione um template para exportar.");
+
+        const result = buildUnitProfileTemplateExport(template, explicitSettings);
+        if (!result.isValid) throw new Error(result.error || "Não foi possível preparar o template.");
+
+        downloadSnapshotCsvFile(
+            formatSanitizedUnitTemplateFilename(result.template),
+            `${JSON.stringify(result.template, null, 2)}\n`,
+            "application/json;charset=utf-8"
+        );
+        showItemUnitSettingsFeedback(
+            `Template baixado com ${result.summary.explicitProfileCount} perfil(is) explícito(s). ${result.summary.remainingWithoutExplicitProfileCount} item(ns) ainda não possuem perfil explícito.`,
+            result.summary.explicitNeedsReviewCount ? "warning" : "success"
+        );
+    } catch (error) {
+        showItemUnitSettingsFeedback(error.message || "Não foi possível baixar o template com unidades.", "error");
     }
 }
 
@@ -1364,17 +1397,24 @@ async function importCountTemplate(jsonText, importFileName) {
     }
 
     try {
-        await saveCountTemplate({
-            ...validation.template,
+        const result = await importCountTemplateWithUnitProfiles(payload, {
             importedAt: new Date().toISOString(),
             importFileName
         });
         await refreshCountTemplatesView();
         await refreshPilotDashboard();
-        showCountTemplateFeedback("Template importado e salvo neste dispositivo.", "success");
+        if (selectedItemUnitTemplateId === result.template.id) await refreshItemUnitSettingsView();
+
+        const summary = result.summary;
+        const conflictCodes = result.conflicts.slice(0, 3).map((conflict) => conflict.itemCode).join(", ");
+        const conflictDetail = conflictCodes ? ` (${conflictCodes}${result.conflicts.length > 3 ? ", …" : ""})` : "";
+        const message = result.isLegacy
+            ? "Template legado importado. Os perfis locais de unidade foram preservados."
+            : `Template importado: ${summary.appliedCount} perfil(is) aplicado(s), ${summary.noOpCount} já igual(is) e ${summary.conflictCount} conflito(s) preservado(s) localmente${conflictDetail}.`;
+        showCountTemplateFeedback(message, summary.conflictCount ? "warning" : "success");
         return true;
-    } catch {
-        showCountTemplateFeedback("Não foi possível salvar o template neste dispositivo.", "error");
+    } catch (error) {
+        showCountTemplateFeedback(error.message || "Não foi possível salvar o template neste dispositivo.", "error");
         return false;
     }
 }
@@ -1962,6 +2002,7 @@ connectCountTemplateEvents(countTemplateHandlers);
 connectItemUnitSettingsEvents({
     onSelectTemplate: selectItemUnitTemplate,
     onAnalyze: analyzeItemUnits,
+    onExportTemplate: exportTemplateWithUnitProfiles,
     onSaveManual: saveManualItemUnit,
     onClearManual: clearManualItemUnit
 });
