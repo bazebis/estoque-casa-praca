@@ -33,8 +33,8 @@ export function normalizeUnitAlias(value) {
     const unit = normalizeText(value).toLocaleLowerCase("pt-BR");
     const aliases = new Map([
         ["gr", "g"], ["grama", "g"], ["gramas", "g"],
-        ["und", "un"], ["unidade", "un"], ["unidades", "un"],
-        ["litro", "l"], ["litros", "l"],
+        ["uni", "un"], ["und", "un"], ["unidade", "un"], ["unidades", "un"],
+        ["lt", "l"], ["litro", "l"], ["litros", "l"],
         ["garrafas", "garrafa"]
     ]);
     return aliases.get(unit) || unit;
@@ -401,10 +401,10 @@ function formatFactor(value) {
 }
 
 function detectWeightGrams(text) {
-    const match = text.match(/(^|[^A-Z0-9])(\d+(?:[.,]\d+)?)\s*(KG|G)($|[^A-Z])/);
+    const match = text.match(/(\d+(?:[.,]\d+)?)\s*(KG|GR|G)(?=$|[^A-Z])/);
     if (!match) return null;
-    const value = Number(match[2].replace(",", "."));
-    return Number.isFinite(value) && value > 0 ? value * (match[3] === "KG" ? 1000 : 1) : null;
+    const value = Number(match[1].replace(",", "."));
+    return Number.isFinite(value) && value > 0 ? value * (match[2] === "KG" ? 1000 : 1) : null;
 }
 
 function detectVolumeLiters(text) {
@@ -451,6 +451,40 @@ function inferMassProfile(itemText, groupText) {
     return source ? createProfileSpec("kg", "kg", massOptions(), source, "high") : null;
 }
 
+function removeTerminalParenthetical(text) {
+    return text.replace(/\s+\([^()]*\)\s*$/, "").trim();
+}
+
+function detectExplicitOperationalUnit(itemText) {
+    const comparableText = removeTerminalParenthetical(itemText);
+    const markerMatch = comparableText.match(/(?:^|[^A-Z0-9])(UNIDADES|UNIDADE|UND|UNI|UN|LITRO|LT|ML|GR|G|L)$/);
+    if (!markerMatch) return "";
+
+    const marker = markerMatch[1];
+    const markerStart = markerMatch.index + markerMatch[0].lastIndexOf(marker);
+    const precedingText = comparableText.slice(0, markerStart).trim().replace(/[\s\-–—/]+$/, "");
+    // Um número antes do marcador descreve capacidade/peso comercial, não necessariamente a contagem.
+    if (/\d+(?:[.,]\d+)?$/.test(precedingText)) return "";
+    return normalizeUnitAlias(marker);
+}
+
+function inferExplicitOperationalUnitProfile(itemText) {
+    const explicitUnit = detectExplicitOperationalUnit(itemText);
+    if (explicitUnit === "g") {
+        return createProfileSpec("kg", "g", massOptions(), "item_name", "high");
+    }
+    if (explicitUnit === "ml" || explicitUnit === "l") {
+        const options = [
+            createAllowedUnit("l", "l", "volume", "1"),
+            createAllowedUnit("ml", "ml", "volume", "0.001")
+        ];
+        return createProfileSpec("l", explicitUnit, options, "item_name", "high");
+    }
+    return explicitUnit === "un"
+        ? createProfileSpec("un", "un", [unitOption()], "item_name", "high")
+        : null;
+}
+
 function inferPackagingProfile(itemText, groupText) {
     const source = detectSource(/EMBALAGENS?|DESCARTAVEIS?/, itemText, groupText);
     if (!source) return null;
@@ -471,10 +505,15 @@ function createVolumeOptions(volumeLiters, includePackage = false) {
     return options;
 }
 
+function isWasteBagCapacity(itemText) {
+    return /SAC(?:O|OLA)\s+DE\s+LIXO/.test(itemText);
+}
+
 function inferCleaningProfile(itemText, groupText) {
     const source = detectSource(/LIMPEZA|DETERGENTE|SANITIZANTE|ALCOOL|DESINFETANTE/, itemText, groupText);
     if (!source) return null;
-    const volumeLiters = detectVolumeLiters(itemText);
+    // Litros em sacos de lixo descrevem capacidade, não uma quantidade de estoque em volume.
+    const volumeLiters = isWasteBagCapacity(itemText) ? null : detectVolumeLiters(itemText);
     const baseUnit = volumeLiters ? "l" : "un";
     return createProfileSpec(baseUnit, volumeLiters ? "l" : "un", createVolumeOptions(volumeLiters, true), source, volumeLiters ? "high" : "medium", !volumeLiters);
 }
@@ -523,8 +562,9 @@ function inferFallbackProfile(itemText, groupText, previousUnit) {
 
 function inferProfileSpec(itemText, groupText, previousUnit) {
     return inferPortionProfile(itemText, groupText)
-        || inferMassProfile(itemText, groupText)
         || inferPackagingProfile(itemText, groupText)
+        || inferExplicitOperationalUnitProfile(itemText)
+        || inferMassProfile(itemText, groupText)
         || inferCleaningProfile(itemText, groupText)
         || inferDrinkProfile(itemText, groupText)
         || inferBottleProfile(itemText, groupText)
