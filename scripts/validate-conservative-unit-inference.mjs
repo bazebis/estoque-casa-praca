@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 import {
     buildControlledItemUnitProfile,
@@ -7,6 +8,7 @@ import {
     normalizeItemUnitSetting,
     normalizeUnitAlias
 } from "../src/itemUnitSettings.js";
+import { convertEntryToBase } from "../src/unitConversion.js";
 
 function createTemplate(itemName, groupName = "Grupo neutro") {
     return {
@@ -87,6 +89,57 @@ function assertControlledVariantsRemainValid() {
         });
         assert.equal(result.isResolved, true, variantFamily);
     });
+
+    const bottleBoxResult = buildControlledItemUnitProfile(profile, {
+        baseUnit: "garrafa",
+        defaultInputUnit: "caixa 12",
+        allowedUnits: ["garrafa", { variantFamily: "caixa", variantValue: "12", variantUnit: "garrafa" }]
+    });
+    assert.equal(bottleBoxResult.isResolved, true, "caixa de garrafas");
+    assertFactor(bottleBoxResult.setting, "caixa 12", 12);
+}
+
+function assertConversion(profile, rawUnit, quantityDecimal, expectedQuantity) {
+    const result = convertEntryToBase({ rawUnit, quantityDecimal }, profile);
+    assert.equal(result.isConvertible, true, `${profile.itemNameSnapshot}: ${rawUnit}`);
+    assert.equal(result.convertedQuantityDecimal, expectedQuantity, `${profile.itemNameSnapshot}: ${rawUnit}`);
+}
+
+function findRealItems(template, pattern, groupName) {
+    return template.groups.flatMap((group) => (
+        group.name === groupName ? group.items.filter((item) => pattern.test(item.name)) : []
+    ));
+}
+
+function assertWasteBagProfile(profile) {
+    assert.equal(profile.baseUnit, "pacote", profile.itemNameSnapshot);
+    assert.equal(profile.defaultInputUnit, "pacote", profile.itemNameSnapshot);
+    assertFactor(profile, "pacote", 1);
+    assert.equal(profile.allowedUnits.some((unit) => ["kg", "g", "l", "ml"].includes(unit.normalizedUnit)), false);
+    assert.equal(doesItemUnitProfileNeedReview(profile), false, profile.itemNameSnapshot);
+}
+
+function assertFurstProfile(profile) {
+    assert.equal(profile.baseUnit, "garrafa", profile.itemNameSnapshot);
+    assert.equal(profile.defaultInputUnit, "garrafa", profile.itemNameSnapshot);
+    assertFactor(profile, "garrafa", 1);
+    assertFactor(profile, "caixa 12", 12);
+    const box = findAllowedUnit(profile, "caixa 12");
+    assert.equal(box.variantFamily, "caixa");
+    assert.equal(box.variantValue, "12");
+    assert.equal(box.variantUnit, "garrafa");
+    assert.equal(profile.allowedUnits.some((unit) => unit.normalizedUnit === "ml"), false);
+    assertConversion(profile, "caixa 12", "1", "12");
+}
+
+function assertCachacaProfile(profile) {
+    assert.equal(profile.baseUnit, "garrafa", profile.itemNameSnapshot);
+    assert.equal(profile.defaultInputUnit, "garrafa", profile.itemNameSnapshot);
+    assertFactor(profile, "garrafa", 1);
+    assert.ok(findAllowedUnit(profile, "ml").factorToBase);
+    assertConversion(profile, "ml", "750", "1");
+    assertConversion(profile, "ml", "375", "0.5");
+    assertConversion(profile, "ml", "1500", "2");
 }
 
 const massProfile = assertExplicitProfile("FARINHA DE TRIGO GR", "kg", "g");
@@ -126,5 +179,30 @@ assert.ok(findAllowedUnit(inferProfile("EMBALAGEM TESTE", "EMBALAGENS"), "pacote
 assertControlledVariantsRemainValid();
 assert.equal(normalizeUnitAlias("UNI"), "un");
 assert.equal(normalizeUnitAlias("LT"), "l");
+
+const realTemplate = JSON.parse(fs.readFileSync(new URL("../data/generated/count-template-cdp.json", import.meta.url), "utf8"));
+const wasteBags = findRealItems(realTemplate, /SACO(?:LA)? DE LIXO/, "97Limpeza");
+assert.equal(wasteBags.length, 3);
+wasteBags.forEach((item) => assertWasteBagProfile(inferUnitForTemplateItem(realTemplate, item.code, [])));
+
+const furstBeers = findRealItems(realTemplate, /CERVEJA FURST.*600\s*ML/, "104CERVEJAS");
+assert.equal(furstBeers.length, 4);
+furstBeers.forEach((item) => assertFurstProfile(inferUnitForTemplateItem(realTemplate, item.code, [])));
+
+const emporioCachacas = findRealItems(realTemplate, /^CACHACA EMPORIO/, "EMPÓRIO");
+assert.equal(emporioCachacas.length, 4);
+emporioCachacas.forEach((item) => assertCachacaProfile(inferUnitForTemplateItem(realTemplate, item.code, [])));
+assert.ok(emporioCachacas.some((item) => /ESPECIAL/.test(item.name)));
+
+const nonFurstBeer = inferProfile("CERVEJA OUTRA MARCA 600ML", "104CERVEJAS");
+assert.equal(nonFurstBeer.allowedUnits.some((unit) => unit.label === "caixa 12"), false);
+const nonCachacaBottle = inferProfile("GIN OUTRA MARCA 750ML", "103BEBIDAS DESTILADAS");
+assert.notEqual(nonCachacaBottle.baseUnit, "garrafa");
+const unrelatedPackaging = inferProfile("HAMBURGUEIRA UN", "EMBALAGENS/DESCARTÁVEIS");
+assert.notEqual(unrelatedPackaging.baseUnit, "pacote");
+const barCachaca = inferProfile("CACHACA BAR CARVALHO ESPECIAL ML", "103BEBIDAS DESTILADAS");
+assert.equal(barCachaca.baseUnit, "l");
+const otherCachacaCapacity = inferProfile("CACHACA EMPORIO TESTE 1L", "EMPÓRIO");
+assert.notEqual(otherCachacaCapacity.baseUnit, "garrafa");
 
 console.log("CONSERVATIVE_UNIT_INFERENCE_VALIDATION_OK");

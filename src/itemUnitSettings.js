@@ -17,7 +17,7 @@ export const CONTROLLED_ITEM_UNIT_CATALOG = Object.freeze([
 export const CONTROLLED_UNIT_VARIANT_FAMILIES = Object.freeze([
     { family: "porção", kind: "portion", variantUnits: ["g", "kg"], compatibleBaseUnits: ["g", "kg"] },
     { family: "fardo", kind: "package", variantUnits: ["un"], compatibleBaseUnits: ["un"] },
-    { family: "caixa", kind: "package", variantUnits: ["un"], compatibleBaseUnits: ["un"] },
+    { family: "caixa", kind: "package", variantUnits: ["un", "garrafa"], compatibleBaseUnits: ["un", "garrafa"] },
     { family: "pacote", kind: "package", variantUnits: ["un"], compatibleBaseUnits: ["un"] }
 ].map((definition) => Object.freeze({
     ...definition,
@@ -204,7 +204,7 @@ export function getUnitVariantSemanticKey(variant = {}) {
         const weightGrams = getPortionWeightGrams(value, variantUnit);
         return weightGrams ? `${definition.family}:${weightGrams}:g` : "";
     }
-    return `${definition.family}:${value}:un`;
+    return `${definition.family}:${value}:${variantUnit}`;
 }
 
 export function getAllowedUnitVariant(unit) {
@@ -505,15 +505,56 @@ function createVolumeOptions(volumeLiters, includePackage = false) {
     return options;
 }
 
-function isWasteBagCapacity(itemText) {
+function isWasteBagProduct(itemText) {
     return /SAC(?:O|OLA)\s+DE\s+LIXO/.test(itemText);
+}
+
+function inferWasteBagProfile(itemText) {
+    if (!isWasteBagProduct(itemText)) return null;
+    const packageUnit = createAllowedUnit("pacote", "pacote", "package", "1");
+    return createProfileSpec("pacote", "pacote", [packageUnit], "item_name", "high");
+}
+
+function inferFurst600BeerProfile(itemText, groupText) {
+    const isConfirmedFamily = /CERVEJAS?/.test(groupText)
+        && /\bCERVEJA\s+FURST\b/.test(itemText)
+        && /\b600\s*ML\b/.test(itemText);
+    if (!isConfirmedFamily) return null;
+
+    const boxVariant = buildControlledUnitVariant("garrafa", {
+        variantFamily: "caixa",
+        variantValue: "12",
+        variantUnit: "garrafa"
+    });
+    if (!boxVariant.isValid) return null;
+    const bottle = createAllowedUnit("garrafa", "garrafa", "bottle", "1");
+    return createProfileSpec("garrafa", "garrafa", [bottle, boxVariant.allowedUnit], "item_name", "high");
+}
+
+function isEmporioCachaca750Family(itemText, groupText) {
+    if (groupText !== "EMPORIO" || !/^CACHACA\s+EMPORIO\b/.test(itemText)) return false;
+    const explicitVolumeLiters = detectVolumeLiters(itemText);
+    return !explicitVolumeLiters || explicitVolumeLiters === 0.75;
+}
+
+function inferEmporioCachaca750Profile(itemText, groupText) {
+    if (!isEmporioCachaca750Family(itemText, groupText)) return null;
+    const bottle = createAllowedUnit("garrafa", "garrafa", "bottle", "1");
+    // Mais casas decimais fazem 750 ml consolidar como 1 garrafa na precisão pública atual.
+    const milliliter = createAllowedUnit("ml", "ml", "volume", "0.001333333333333333");
+    return createProfileSpec("garrafa", "garrafa", [bottle, milliliter], "item_name", "high");
+}
+
+function inferConfirmedOperationalProfile(itemText, groupText) {
+    return inferWasteBagProfile(itemText)
+        || inferFurst600BeerProfile(itemText, groupText)
+        || inferEmporioCachaca750Profile(itemText, groupText);
 }
 
 function inferCleaningProfile(itemText, groupText) {
     const source = detectSource(/LIMPEZA|DETERGENTE|SANITIZANTE|ALCOOL|DESINFETANTE/, itemText, groupText);
     if (!source) return null;
-    // Litros em sacos de lixo descrevem capacidade, não uma quantidade de estoque em volume.
-    const volumeLiters = isWasteBagCapacity(itemText) ? null : detectVolumeLiters(itemText);
+    const volumeLiters = detectVolumeLiters(itemText);
     const baseUnit = volumeLiters ? "l" : "un";
     return createProfileSpec(baseUnit, volumeLiters ? "l" : "un", createVolumeOptions(volumeLiters, true), source, volumeLiters ? "high" : "medium", !volumeLiters);
 }
@@ -561,7 +602,8 @@ function inferFallbackProfile(itemText, groupText, previousUnit) {
 }
 
 function inferProfileSpec(itemText, groupText, previousUnit) {
-    return inferPortionProfile(itemText, groupText)
+    return inferConfirmedOperationalProfile(itemText, groupText)
+        || inferPortionProfile(itemText, groupText)
         || inferPackagingProfile(itemText, groupText)
         || inferExplicitOperationalUnitProfile(itemText)
         || inferMassProfile(itemText, groupText)
