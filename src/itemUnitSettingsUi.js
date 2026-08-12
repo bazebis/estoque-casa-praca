@@ -15,6 +15,7 @@ let itemSearchQuery = "";
 let activeProfileFilter = "all";
 let activeItemIndex = 0;
 let currentNavigationItems = [];
+let editorNavigationItems = [];
 let editorInitialValues = "";
 let editorReturnFocus = null;
 let pendingDiscardAction = null;
@@ -105,6 +106,10 @@ export function buildItemUnitNavigationItems(template, settings = [], searchQuer
         const setting = settingsByItem.get(item.code);
         return matchesSearch(item, group, searchQuery) && matchesProfileFilter(setting, profileFilter);
     }).map((item) => ({ item, group, setting: settingsByItem.get(item.code) })));
+}
+
+export function findItemUnitEditorEntry(template, settings = [], itemCode = "") {
+    return buildItemUnitNavigationItems(template, settings).find((entry) => entry.item.code === itemCode) || null;
 }
 
 export function clampItemUnitNavigationIndex(index, itemCount) {
@@ -365,15 +370,26 @@ function renderTechnicalDetails(setting, itemCode) {
     `;
 }
 
-function renderEditorSurface(entry, itemIndex, itemCount) {
+function resolveEditorNavigation(itemCode) {
+    const navigationItems = editorNavigationItems.length > 0 ? editorNavigationItems : currentNavigationItems;
+    const navigationIndex = navigationItems.findIndex((entry) => entry.item.code === itemCode);
+    return {
+        positionLabel: navigationIndex >= 0
+            ? `Item ${navigationIndex + 1} de ${navigationItems.length}`
+            : "Item atualizado",
+        previousItemCode: navigationItems[navigationIndex - 1]?.item.code || "",
+        nextItemCode: navigationItems[navigationIndex + 1]?.item.code || ""
+    };
+}
+
+function renderEditorSurface(entry) {
     const setting = entry.setting;
-    const previousItemCode = currentNavigationItems[itemIndex - 1]?.item.code || "";
-    const nextItemCode = currentNavigationItems[itemIndex + 1]?.item.code || "";
+    const { positionLabel, previousItemCode, nextItemCode } = resolveEditorNavigation(entry.item.code);
     return `
         <header class="item-unit-editor-header">
             <button type="button" class="item-unit-editor-close" data-close-item-unit-editor aria-label="Fechar editor">Voltar</button>
             <div>
-                <span>Item ${itemIndex + 1} de ${itemCount} · ${escapeHtml(entry.group.name)}</span>
+                <span>${positionLabel} · ${escapeHtml(entry.group.name)}</span>
                 <h3 id="item-unit-editor-title">${escapeHtml(entry.item.name)}</h3>
                 <small>Código: ${escapeHtml(entry.item.code)}</small>
             </div>
@@ -489,11 +505,13 @@ function rememberEditorState() {
     updateEditorDirtyIndicator();
 }
 
-function renderCurrentEditor() {
-    const entry = currentNavigationItems[activeItemIndex];
+function renderCurrentEditor(itemCode = "") {
+    const entry = itemCode
+        ? findItemUnitEditorEntry(currentViewModel?.selectedTemplate, currentViewModel?.settings, itemCode)
+        : currentNavigationItems[activeItemIndex];
     if (!entry) return false;
     const surface = getElement("item-unit-editor-surface");
-    surface.innerHTML = renderEditorSurface(entry, activeItemIndex, currentNavigationItems.length);
+    surface.innerHTML = renderEditorSurface(entry);
     synchronizeControlledForm(getEditorForm());
     rememberEditorState();
     return true;
@@ -508,6 +526,7 @@ function unlockPageAfterEditor() {
 }
 
 function openCurrentEditor(trigger) {
+    editorNavigationItems = [...currentNavigationItems];
     if (!renderCurrentEditor()) return;
     editorReturnFocus = trigger || document.activeElement;
     lockPageForEditor();
@@ -517,6 +536,7 @@ function openCurrentEditor(trigger) {
 
 function closeCurrentEditor() {
     editorInitialValues = "";
+    editorNavigationItems = [];
     getEditorDialog().close();
     unlockPageAfterEditor();
     const fallbackFocus = getElement("item-unit-groups").querySelector("[data-edit-item-unit]");
@@ -556,6 +576,7 @@ function moveInsideEditor(itemCode) {
         const nextIndex = currentNavigationItems.findIndex((entry) => entry.item.code === itemCode);
         if (nextIndex < 0) return;
         activeItemIndex = nextIndex;
+        editorNavigationItems = [...currentNavigationItems];
         renderItems();
         renderCurrentEditor();
     });
@@ -724,6 +745,8 @@ function collectControlledFormValues(form) {
 }
 
 export function renderItemUnitSettings(viewModel) {
+    // A fila pode mudar de filtro após salvar, mas o editor precisa continuar no mesmo produto.
+    const openEditorItemCode = getEditorDialog().open ? getEditorForm()?.dataset.itemCode || "" : "";
     const previousTemplateId = currentViewModel?.selectedTemplate?.id;
     currentViewModel = viewModel;
     if (previousTemplateId !== viewModel.selectedTemplate?.id) {
@@ -739,6 +762,7 @@ export function renderItemUnitSettings(viewModel) {
     getElement("item-unit-search").value = itemSearchQuery;
     renderSummary(viewModel.summary);
     renderItems();
+    if (openEditorItemCode) renderCurrentEditor(openEditorItemCode);
 }
 
 export function showItemUnitSettingsFeedback(message, tone = "") {
@@ -881,7 +905,8 @@ function connectItemUnitEditorSubmitEvent(handlers) {
         if (!form) return;
         event.preventDefault();
         const didSave = await handlers.onSaveManual(form.dataset.itemCode, collectControlledFormValues(form));
-        copyItemUnitFeedbackToEditor(form);
+        const renderedForm = getEditorForm();
+        copyItemUnitFeedbackToEditor(renderedForm);
         if (!didSave) {
             updateEditorDirtyIndicator();
             return;
@@ -918,15 +943,16 @@ function connectItemUnitEditorNavigationEvents(handlers) {
         requestDiscardChanges(async () => {
             const didClear = await handlers.onClearManual(button.dataset.clearItemUnit);
             if (didClear === null) {
-                renderCurrentEditor();
+                renderCurrentEditor(button.dataset.clearItemUnit);
                 return;
             }
             if (!didClear) {
-                renderCurrentEditor();
+                renderCurrentEditor(button.dataset.clearItemUnit);
                 copyItemUnitFeedbackToEditor(getEditorForm());
                 return;
             }
-            closeCurrentEditor();
+            copyItemUnitFeedbackToEditor(getEditorForm());
+            rememberEditorState();
         });
     });
 }
