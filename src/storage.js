@@ -1,4 +1,5 @@
 import { initialCatalogItems } from "./seed.js";
+import { buildBackupPayload, buildBackupRestorePlan } from "./backup.js";
 import { normalizeHistoryEntry } from "./history.js";
 import { normalizeCountTemplate } from "./countTemplates.js";
 import {
@@ -52,6 +53,7 @@ import {
     openDatabase,
     putInStore,
     replaceStore,
+    replaceStoresAtomically,
     storeNames
 } from "./db.js";
 
@@ -767,6 +769,207 @@ export async function saveBackupBeforeJsonImport(state) {
         () => saveLocalBackupBeforeJsonImport(state)
     );
     saveLocalBackupBeforeJsonImport(state);
+}
+
+function createBackupScopedState(values) {
+    return {
+        catalogItems: values.catalogItems,
+        countingHistory: values.countingHistory,
+        customUnits: values.customUnits,
+        countTemplates: values.countTemplates,
+        itemUnitSettings: values.itemUnitSettings
+    };
+}
+
+async function loadBackupScopedState() {
+    const values = await Promise.all([
+        loadCatalog(),
+        loadCountingHistory(),
+        loadCustomUnits(),
+        listCountTemplates(),
+        listItemUnitSettings()
+    ]);
+    return createBackupScopedState({
+        catalogItems: values[0],
+        countingHistory: values[1],
+        customUnits: values[2],
+        countTemplates: values[3],
+        itemUnitSettings: values[4]
+    });
+}
+
+function serializeComparable(value) {
+    return JSON.stringify(value);
+}
+
+function findChangedTemplateIds(currentTemplates, nextTemplates) {
+    const currentById = new Map(currentTemplates.map((template) => [template.id, template]));
+    const nextById = new Map(nextTemplates.map((template) => [template.id, template]));
+    const allIds = new Set([...currentById.keys(), ...nextById.keys()]);
+    return new Set([...allIds].filter((templateId) => (
+        serializeComparable(currentById.get(templateId)) !== serializeComparable(nextById.get(templateId))
+    )));
+}
+
+function createProfileKey(setting) {
+    return `${setting.templateId}\u0000${setting.itemCode}`;
+}
+
+function findChangedProfiles(currentSettings, nextSettings) {
+    const currentByKey = new Map(currentSettings.map((setting) => [createProfileKey(setting), setting]));
+    const nextByKey = new Map(nextSettings.map((setting) => [createProfileKey(setting), setting]));
+    const allKeys = new Set([...currentByKey.keys(), ...nextByKey.keys()]);
+    return [...allKeys].filter((key) => (
+        serializeComparable(currentByKey.get(key)) !== serializeComparable(nextByKey.get(key))
+    )).map((key) => currentByKey.get(key) || nextByKey.get(key));
+}
+
+function hasOpenSessionPlannedForProfile(setting, sessions) {
+    return normalizeLocationCountSessions(sessions).some((session) => (
+        session.templateId === setting.templateId
+        && ["draft", "in_progress"].includes(session.status)
+        && session.plannedItems.some((item) => item.active && item.itemCode === setting.itemCode)
+    ));
+}
+
+function assertBackupRestoreSessionsAreSafe(plan, sessions, entries) {
+    if (!plan.writeFields.includes("countTemplates")) return;
+    const changedTemplateIds = findChangedTemplateIds(
+        plan.currentState.countTemplates,
+        plan.nextState.countTemplates
+    );
+    const hasRelatedOpenSession = normalizeLocationCountSessions(sessions).some((session) => (
+        changedTemplateIds.has(session.templateId) && ["draft", "in_progress"].includes(session.status)
+    ));
+    if (hasRelatedOpenSession) {
+        throw new Error("Finalize ou cancele a contagem aberta antes de restaurar templates deste backup.");
+    }
+
+    const changedProfiles = findChangedProfiles(
+        plan.currentState.itemUnitSettings,
+        plan.nextState.itemUnitSettings
+    );
+    const hasProtectedProfile = changedProfiles.some((setting) => (
+        hasOpenSessionPlannedForProfile(setting, sessions)
+        || hasActiveEntriesForItemInOpenSessions({
+            templateId: setting.templateId,
+            itemCode: setting.itemCode,
+            sessions,
+            entries
+        })
+    ));
+    if (hasProtectedProfile) throw new Error(activeEntryProfileMutationMessage);
+}
+
+function createInternalBackupRecord(currentState) {
+    const state = buildBackupPayload({
+        ...currentState,
+        lastFinalizedCount: currentState.countingHistory[0] || null
+    });
+    return { createdAt: new Date().toISOString(), state };
+}
+
+function buildLocalRestoreWrites(plan, backupRecord) {
+    const fieldToStorageKey = {
+        catalogItems: catalogStorageKey,
+        countingHistory: countingHistoryStorageKey,
+        customUnits: customUnitsStorageKey,
+        countTemplates: countTemplatesStorageKey,
+        itemUnitSettings: itemUnitSettingsStorageKey
+    };
+    const writes = plan.writeFields.map((fieldName) => ({
+        storageKey: fieldToStorageKey[fieldName],
+        value: plan.nextState[fieldName]
+    }));
+    writes.push({ storageKey: backupBeforeJsonImportStorageKey, value: backupRecord });
+    return writes;
+}
+
+function restoreLocalStorageSnapshot(snapshot) {
+    snapshot.forEach(({ storageKey, value }) => {
+        if (value === null) localStorage.removeItem(storageKey);
+        else localStorage.setItem(storageKey, value);
+    });
+}
+
+function applyLocalRestoreWrites(writes) {
+    const snapshot = writes.map(({ storageKey }) => ({ storageKey, value: localStorage.getItem(storageKey) }));
+    try {
+        writes.forEach(({ storageKey, value }) => writeJson(storageKey, value));
+    } catch (writeError) {
+        try {
+            restoreLocalStorageSnapshot(snapshot);
+        } catch (rollbackError) {
+            throw new Error(`A restauração falhou e o rollback do LocalStorage também falhou: ${rollbackError.message}`);
+        }
+        throw writeError;
+    }
+    return snapshot;
+}
+
+function buildIndexedDbRestoreOperation(plan, backupRecord) {
+    const replacements = {};
+    const records = [{
+        storeName: storeNames.backups,
+        value: { ...backupRecord, key: backupBeforeJsonImportStorageKey }
+    }];
+    if (plan.writeFields.includes("catalogItems")) {
+        replacements[storeNames.catalog] = plan.nextState.catalogItems;
+        records.push({ storeName: storeNames.appState, value: { key: catalogInitializedKey, value: true } });
+    }
+    if (plan.writeFields.includes("countingHistory")) replacements[storeNames.countingHistory] = plan.nextState.countingHistory;
+    if (plan.writeFields.includes("customUnits")) replacements[storeNames.customUnits] = plan.nextState.customUnits;
+    if (plan.writeFields.includes("countTemplates")) replacements[storeNames.countTemplates] = plan.nextState.countTemplates;
+    if (plan.writeFields.includes("itemUnitSettings")) {
+        records.push({
+            storeName: storeNames.appState,
+            value: { key: itemUnitSettingsStorageKey, value: plan.nextState.itemUnitSettings }
+        });
+    }
+    return { replacements, records };
+}
+
+async function commitBackupRestorePlan(plan, backupRecord) {
+    const localWrites = buildLocalRestoreWrites(plan, backupRecord);
+    const localSnapshot = applyLocalRestoreWrites(localWrites);
+    if (!shouldUseIndexedDB) return;
+
+    try {
+        await replaceStoresAtomically(buildIndexedDbRestoreOperation(plan, backupRecord));
+    } catch (databaseError) {
+        try {
+            restoreLocalStorageSnapshot(localSnapshot);
+        } catch (rollbackError) {
+            throw new Error(`A transação IndexedDB falhou e o espelho local não pôde ser revertido: ${rollbackError.message}`);
+        }
+        throw databaseError;
+    }
+}
+
+async function restoreBackupStateSerialized(payload, mode) {
+    const [currentState, sessions, entries] = await Promise.all([
+        loadBackupScopedState(),
+        listLocationCountSessions(),
+        listLocationCountEntries()
+    ]);
+    const plan = buildBackupRestorePlan({ payload, currentState, mode });
+    if (!plan.isValid) throw new Error(plan.error || "Backup inválido.");
+    plan.currentState = currentState;
+    assertBackupRestoreSessionsAreSafe(plan, sessions, entries);
+
+    // O segundo plano fica no limite da escrita e fecha corridas com outros writers da fila.
+    const boundaryState = await loadBackupScopedState();
+    const boundaryPlan = buildBackupRestorePlan({ payload, currentState: boundaryState, mode });
+    if (!boundaryPlan.isValid) throw new Error(boundaryPlan.error || "Backup inválido.");
+    boundaryPlan.currentState = boundaryState;
+    assertBackupRestoreSessionsAreSafe(boundaryPlan, await listLocationCountSessions(), await listLocationCountEntries());
+    const backupRecord = createInternalBackupRecord(boundaryState);
+    await commitBackupRestorePlan(boundaryPlan, backupRecord);
+    return { mode, schemaVersion: boundaryPlan.backup.schemaVersion, state: boundaryPlan.nextState };
+}
+
+export async function restoreBackupState(payload, mode) {
+    return serializeItemUnitSettingsMutation(() => restoreBackupStateSerialized(payload, mode));
 }
 
 export async function listCountTemplates() {

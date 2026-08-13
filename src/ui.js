@@ -893,6 +893,8 @@ export function renderBackupImportPreview(preview) {
         `Itens no catálogo: ${preview.catalogCount}`,
         `Contagens no histórico: ${preview.historyCount}`,
         `Unidades personalizadas: ${preview.customUnitsCount || 0}`,
+        `Templates de contagem: ${preview.templateCount || 0}`,
+        `Perfis explícitos de unidade: ${preview.itemUnitSettingsCount || 0}`,
         `Rascunho no arquivo: ${preview.hasDraft ? "sim" : "não"}`
     ].forEach((text) => {
         const item = document.createElement("li");
@@ -901,6 +903,11 @@ export function renderBackupImportPreview(preview) {
     });
 
     container.appendChild(list);
+    if (preview.preservesLocalUnitConfiguration) {
+        const legacyNotice = document.createElement("p");
+        legacyNotice.textContent = "Backup legado: não contém templates nem perfis de unidade; esses dados locais serão preservados.";
+        container.appendChild(legacyNotice);
+    }
     setBackupImportActionsVisible(true);
 }
 

@@ -62,6 +62,29 @@ function runStoreOperation(storeName, mode, operation) {
     ));
 }
 
+function runMultiStoreOperation(selectedStoreNames, operation) {
+    const uniqueStoreNames = [...new Set(selectedStoreNames)];
+
+    return openDatabase().then((database) => (
+        new Promise((resolve, reject) => {
+            const transaction = database.transaction(uniqueStoreNames, "readwrite");
+            const stores = Object.fromEntries(uniqueStoreNames.map((storeName) => (
+                [storeName, transaction.objectStore(storeName)]
+            )));
+
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = () => reject(transaction.error);
+            transaction.onabort = () => reject(transaction.error || new Error("Transação cancelada."));
+            try {
+                operation(stores);
+            } catch (error) {
+                transaction.abort();
+                reject(error);
+            }
+        })
+    ));
+}
+
 export function isIndexedDBAvailable() {
     return Boolean(globalThis.indexedDB);
 }
@@ -152,6 +175,23 @@ export async function replaceStore(storeName, values) {
                 store.put(value);
             });
         };
+    });
+}
+
+export async function replaceStoresAtomically({ replacements = {}, records = [] } = {}) {
+    const selectedStoreNames = [...Object.keys(replacements), ...records.map((record) => record.storeName)];
+
+    if (selectedStoreNames.length === 0) {
+        return;
+    }
+
+    await runMultiStoreOperation(selectedStoreNames, (stores) => {
+        Object.entries(replacements).forEach(([storeName, values]) => {
+            const store = stores[storeName];
+            store.clear();
+            (Array.isArray(values) ? values : []).forEach((value) => store.put(value));
+        });
+        records.forEach((record) => stores[record.storeName].put(record.value));
     });
 }
 

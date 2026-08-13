@@ -15,8 +15,6 @@ import {
 import {
     buildBackupPayload,
     downloadBackup,
-    mergeCountingHistory,
-    normalizeBackupPayload,
     parseBackupText,
     previewBackupPayload
 } from "./backup.js";
@@ -145,7 +143,6 @@ import {
     loadCountingHistory,
     loadLastFinalizedCount,
     loadCustomUnits,
-    loadRelevantLocalStorageKeys,
     listCountTemplates,
     listConsolidationSnapshots,
     listItemUnitSettings,
@@ -155,7 +152,6 @@ import {
     listLocationCountSessions,
     listLocationCountEntries,
     loadWhatsappSettings,
-    saveBackupBeforeJsonImport,
     saveCatalogBackupBeforeImport,
     saveCatalog,
     saveCountingHistory,
@@ -167,6 +163,7 @@ import {
     saveLocationCountSession,
     saveLocationNode,
     saveCustomUnits,
+    restoreBackupState,
     saveWhatsappSettings,
     clearWhatsappSettings,
     addLocationCountEntry,
@@ -258,16 +255,6 @@ let itemLinksLocationFilter = "";
 let itemLinksItemFilter = "";
 
 await saveCatalog(catalog.listItems());
-
-function mergeCustomUnitLists(currentUnits, importedUnits) {
-    const unitById = new Map();
-
-    [...currentUnits, ...importedUnits].forEach((unit) => {
-        unitById.set(unit.id, unit);
-    });
-
-    return [...unitById.values()];
-}
 
 async function saveCustomUnitState(units) {
     const savedUnits = await saveCustomUnits(units);
@@ -420,12 +407,19 @@ function cancelCatalogImport() {
 }
 
 async function createCurrentBackupPayload() {
+    const [countingHistory, lastCount, countTemplates, itemUnitSettings] = await Promise.all([
+        loadCountingHistory(),
+        loadLastFinalizedCount(),
+        listCountTemplates(),
+        listItemUnitSettings()
+    ]);
     return buildBackupPayload({
         catalogItems: catalog.listItems(),
-        countingHistory: await loadCountingHistory(),
-        lastFinalizedCount: await loadLastFinalizedCount(),
+        countingHistory,
+        lastFinalizedCount: lastCount,
         customUnits: getCustomUnits(),
-        localStorageKeys: await loadRelevantLocalStorageKeys()
+        countTemplates,
+        itemUnitSettings
     });
 }
 
@@ -451,7 +445,7 @@ function analyzeBackupImport(jsonText) {
         return;
     }
 
-    pendingBackupImport = normalizeBackupPayload(parsed.payload);
+    pendingBackupImport = parsed.payload;
     renderBackupImportPreview(preview);
 }
 
@@ -467,8 +461,11 @@ function confirmActiveDraftRisk(mode) {
 
 function confirmBackupImportMode(mode) {
     if (mode === "replace-all") {
+        const includesUnitConfiguration = Number(pendingBackupImport?.schemaVersion) === 2;
         return window.confirm(
-            "Substituir catálogo e histórico locais pelo backup? Um backup interno do estado atual será salvo antes."
+            includesUnitConfiguration
+                ? "Substituir catálogo, histórico, templates e perfis de unidade pelos dados deste backup? Um backup interno do estado atual será salvo antes."
+                : "Substituir catálogo e histórico locais pelo backup legado? Templates e perfis de unidade locais serão preservados."
         );
     }
 
@@ -491,26 +488,21 @@ async function applyBackupImport(mode) {
         return;
     }
 
-    await saveBackupBeforeJsonImport(await createCurrentBackupPayload());
-
-    if (mode === "replace-all") {
-        await saveCustomUnitState(pendingBackupImport.customUnits);
-        await saveCatalog(catalog.replaceItems(pendingBackupImport.catalogItems));
-        await saveCountingHistory(pendingBackupImport.countingHistory);
-    } else if (mode === "replace-catalog") {
-        await saveCustomUnitState(mergeCustomUnitLists(getCustomUnits(), pendingBackupImport.customUnits));
-        await saveCatalog(catalog.replaceItems(pendingBackupImport.catalogItems));
-    } else {
-        const currentHistory = await loadCountingHistory();
-        await saveCustomUnitState(mergeCustomUnitLists(getCustomUnits(), pendingBackupImport.customUnits));
-        await saveCountingHistory(mergeCountingHistory(currentHistory, pendingBackupImport.countingHistory));
+    try {
+        const result = await restoreBackupState(pendingBackupImport, mode);
+        catalog.replaceItems(result.state.catalogItems);
+        setCustomUnits(result.state.customUnits);
+        lastFinalizedCount = result.state.countingHistory[0] || null;
+        pendingBackupImport = null;
+        refreshUnitsView();
+        await refreshCountTemplatesView();
+        await refreshItemUnitSettingsView().catch(() => null);
+        await refreshPilotDashboard();
+        resetBackupImportPreview();
+        showBackupImportStatus("Backup importado com sucesso.");
+    } catch (error) {
+        showBackupImportStatus(error.message || "Não foi possível importar o backup.");
     }
-
-    lastFinalizedCount = await loadLastFinalizedCount();
-    pendingBackupImport = null;
-    refreshUnitsView();
-    resetBackupImportPreview();
-    showBackupImportStatus("Backup importado com sucesso.");
 }
 
 function cancelBackupImport() {
