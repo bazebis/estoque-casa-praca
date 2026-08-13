@@ -1377,6 +1377,28 @@ textarea:focus-visible {
     margin: 0;
 }
 
+.item-unit-assisted-sanitation {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+}
+
+.item-unit-assisted-sanitation h4,
+.item-unit-assisted-sanitation p {
+    margin: 0 0 var(--space-2);
+}
+
+.item-unit-assisted-sanitation p {
+    color: var(--color-text-muted);
+}
+
+.item-unit-assisted-sanitation button {
+    width: 100%;
+    margin: 0;
+}
+
 .item-unit-filters {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

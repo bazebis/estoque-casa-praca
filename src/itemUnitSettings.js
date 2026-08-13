@@ -345,6 +345,96 @@ export function doesItemUnitProfileNeedReview(setting) {
     return profile.allowedUnits.some((unit) => !unit.factorToBase);
 }
 
+function hasValidAssistedSuggestionVariant(unit, normalizedUnit, baseUnit) {
+    const variantFields = ["variantFamily", "variantValue", "variantUnit"];
+    const hasVariantMetadata = variantFields.some((fieldName) => normalizeText(unit?.[fieldName]));
+    if (!hasVariantMetadata) return true;
+    if (variantFields.some((fieldName) => !normalizeText(unit?.[fieldName]))) return false;
+
+    const semanticKey = getUnitVariantSemanticKey(normalizedUnit);
+    const expectedFactor = getUnitVariantFactorToBase(baseUnit, normalizedUnit);
+    if (!semanticKey || !normalizedUnit.variantFamily) return false;
+    if (expectedFactor) return Number(expectedFactor) === Number(normalizedUnit.factorToBase);
+
+    // Porções legadas podem ser a própria base operacional, mantendo o peso apenas como metadado físico.
+    return normalizedUnit.label === baseUnit && normalizedUnit.factorToBase === "1";
+}
+
+export function validateAssistedUnitSuggestion(setting) {
+    const normalizedSetting = normalizeItemUnitSetting(setting);
+    const validation = validateItemUnitSetting(setting);
+    if (!validation.isValid || !normalizedSetting) {
+        return { isEligible: false, error: validation.error || "A sugestão é inválida.", setting: null };
+    }
+    if (!isItemUnitProfileComplete(normalizedSetting)) {
+        return { isEligible: false, error: "A sugestão está incompleta.", setting: null };
+    }
+    if (normalizedSetting.needsReview || normalizedSetting.allowedUnits.some((unit) => unit.requiresReview)) {
+        return { isEligible: false, error: "A sugestão ainda precisa de revisão.", setting: null };
+    }
+    if (normalizedSetting.allowedUnits.length !== (Array.isArray(setting?.allowedUnits) ? setting.allowedUnits.length : 0)) {
+        return { isEligible: false, error: "A sugestão possui unidades inválidas ou duplicadas.", setting: null };
+    }
+
+    const invalidFactor = normalizedSetting.allowedUnits.find((unit) => (
+        !unit.factorToBase || !Number.isFinite(Number(unit.factorToBase)) || Number(unit.factorToBase) <= 0
+    ));
+    if (invalidFactor) {
+        return { isEligible: false, error: `A unidade ${invalidFactor.label} possui fator inválido.`, setting: null };
+    }
+
+    const invalidVariantIndex = normalizedSetting.allowedUnits.findIndex((unit, unitIndex) => (
+        !hasValidAssistedSuggestionVariant(setting.allowedUnits[unitIndex], unit, normalizedSetting.baseUnit)
+    ));
+    if (invalidVariantIndex >= 0) {
+        return { isEligible: false, error: "A sugestão possui variante inválida.", setting: null };
+    }
+    return { isEligible: true, error: "", setting: normalizedSetting };
+}
+
+function listTemplateItemCodes(template) {
+    return (template?.groups || []).flatMap((group) => (group.items || []).map((item) => normalizeText(item.code)));
+}
+
+export function buildAssistedUnitSuggestionPlan({ template, explicitSettings = [], previousEntries = [] } = {}) {
+    const itemCodes = listTemplateItemCodes(template);
+    const validItemCodes = itemCodes.filter(Boolean);
+    if (!template?.id || validItemCodes.length !== itemCodes.length || new Set(validItemCodes).size !== validItemCodes.length) {
+        return { isValid: false, error: "O template possui itens sem código válido ou com código duplicado.", candidates: [] };
+    }
+
+    const explicitByItem = new Map(normalizeItemUnitSettings(explicitSettings)
+        .filter((setting) => setting.templateId === template.id)
+        .map((setting) => [setting.itemCode, setting]));
+    const inferredByItem = new Map(inferUnitsForTemplate(template, previousEntries)
+        .map((setting) => [setting.itemCode, setting]));
+    const candidates = [];
+    let remainingNeedsReviewCount = 0;
+
+    validItemCodes.forEach((itemCode) => {
+        const explicitSetting = explicitByItem.get(itemCode);
+        if (explicitSetting) {
+            if (doesItemUnitProfileNeedReview(explicitSetting)) remainingNeedsReviewCount += 1;
+            return;
+        }
+        const eligibility = validateAssistedUnitSuggestion(inferredByItem.get(itemCode));
+        if (eligibility.isEligible) candidates.push(eligibility.setting);
+        else remainingNeedsReviewCount += 1;
+    });
+
+    return {
+        isValid: true,
+        error: "",
+        candidates,
+        summary: {
+            itemCount: validItemCodes.length,
+            explicitProfileCount: [...explicitByItem.keys()].filter((itemCode) => validItemCodes.includes(itemCode)).length,
+            eligibleSuggestionCount: candidates.length,
+            remainingNeedsReviewCount
+        }
+    };
+}
+
 function findTemplateItemContext(template, requestedItem) {
     const itemCode = normalizeText(requestedItem?.code || requestedItem?.itemCode || requestedItem);
     for (const group of template?.groups || []) {

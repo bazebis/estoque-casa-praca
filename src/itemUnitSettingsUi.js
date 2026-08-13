@@ -101,6 +101,23 @@ function renderPortabilitySummary(summary) {
     ].join(" · ");
 }
 
+function renderAssistedSanitationSummary(summary) {
+    const container = getElement("item-unit-assisted-sanitation");
+    container.hidden = !summary;
+    if (!summary) return;
+
+    getElement("item-unit-assisted-sanitation-summary").textContent = [
+        `Perfis explícitos: ${summary.explicitProfileCount}`,
+        `Sugestões prontas: ${summary.eligibleSuggestionCount}`,
+        `Ainda para revisar: ${summary.remainingNeedsReviewCount}`
+    ].join(" · ");
+    const button = getElement("btn-confirm-ready-unit-suggestions");
+    button.disabled = summary.eligibleSuggestionCount === 0;
+    button.textContent = summary.eligibleSuggestionCount > 0
+        ? `Confirmar ${summary.eligibleSuggestionCount} sugestões prontas`
+        : "Nenhuma sugestão pronta para confirmar";
+}
+
 function matchesSearch(item, group, searchQuery) {
     const query = searchQuery.trim().toLocaleLowerCase("pt-BR");
     if (!query) return true;
@@ -772,6 +789,7 @@ export function renderItemUnitSettings(viewModel) {
     getElement("item-unit-no-template").hidden = hasTemplate;
     getElement("item-unit-workspace").hidden = !hasTemplate;
     renderPortabilitySummary(hasTemplate ? viewModel.portabilitySummary : null);
+    renderAssistedSanitationSummary(hasTemplate ? viewModel.assistedSanitationSummary : null);
     if (!hasTemplate) return;
     getElement("item-unit-search").value = itemSearchQuery;
     renderSummary(viewModel.summary);
@@ -783,6 +801,19 @@ export function showItemUnitSettingsFeedback(message, tone = "") {
     const feedback = getElement("item-unit-feedback");
     feedback.textContent = message;
     feedback.dataset.tone = tone;
+}
+
+export function setItemUnitAssistedSanitationBusy(isBusy) {
+    const button = getElement("btn-confirm-ready-unit-suggestions");
+    const suggestionCount = currentViewModel?.assistedSanitationSummary?.eligibleSuggestionCount || 0;
+    button.disabled = isBusy || suggestionCount === 0;
+    if (isBusy) {
+        button.textContent = "Confirmando sugestões…";
+        return;
+    }
+    button.textContent = suggestionCount > 0
+        ? `Confirmar ${suggestionCount} sugestões prontas`
+        : "Nenhuma sugestão pronta para confirmar";
 }
 
 function connectItemUnitQueueControlEvents(handlers) {
@@ -797,6 +828,7 @@ function connectItemUnitQueueControlEvents(handlers) {
     });
     getElement("btn-analyze-item-units").addEventListener("click", handlers.onAnalyze);
     getElement("btn-download-template-with-units").addEventListener("click", handlers.onExportTemplate);
+    getElement("btn-confirm-ready-unit-suggestions").addEventListener("click", handlers.onConfirmReadySuggestions);
     getElement("item-unit-search").addEventListener("input", (event) => {
         const nextQuery = event.target.value;
         requestDiscardChanges(() => {

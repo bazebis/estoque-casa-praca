@@ -77,6 +77,7 @@ import {
     showItemLocationLinksFeedback
 } from "./itemLocationLinksUi.js";
 import {
+    buildAssistedUnitSuggestionPlan,
     buildControlledItemUnitProfile,
     resolveItemUnitSettings,
     summarizeItemUnitSettings
@@ -88,6 +89,7 @@ import {
 import {
     connectItemUnitSettingsEvents,
     renderItemUnitSettings,
+    setItemUnitAssistedSanitationBusy,
     showItemUnitSettingsFeedback
 } from "./itemUnitSettingsUi.js";
 import { buildLocationItemMap } from "./locationItemMap.js";
@@ -122,6 +124,7 @@ import {
     addCountHistoryEntry,
     cancelLocationCountSession,
     clearCountingDraft,
+    confirmReadyItemUnitSuggestions,
     createLocationCountSessionDraft,
     deleteCountTemplate,
     deleteConsolidationSnapshot,
@@ -1180,12 +1183,21 @@ async function loadItemUnitSettingsContext() {
     const portability = selectedTemplate
         ? buildUnitProfileTemplateExport(selectedTemplate, savedSettings)
         : null;
+    const assistedSanitation = selectedTemplate
+        ? buildAssistedUnitSuggestionPlan({
+            template: selectedTemplate,
+            explicitSettings: savedSettings,
+            previousEntries: entries
+        })
+        : null;
     return {
         templates,
         selectedTemplate,
         settings,
         summary: summarizeItemUnitSettings(selectedTemplate, settings),
-        portabilitySummary: portability?.summary || null
+        portabilitySummary: portability?.summary || null,
+        assistedSanitationSummary: assistedSanitation?.summary || null,
+        assistedSanitationCandidates: assistedSanitation?.candidates || []
     };
 }
 
@@ -1244,6 +1256,41 @@ async function exportTemplateWithUnitProfiles() {
         );
     } catch (error) {
         showItemUnitSettingsFeedback(error.message || "Não foi possível baixar o template com unidades.", "error");
+    }
+}
+
+function confirmAssistedUnitSuggestionBatch(candidateCount) {
+    return window.confirm([
+        `${candidateCount} sugestão(ões) pronta(s) serão gravadas como configurações explícitas.`,
+        "Configurações explícitas existentes serão preservadas.",
+        "Itens ainda em revisão não serão alterados. Deseja continuar?"
+    ].join("\n\n"));
+}
+
+async function confirmReadyUnitSuggestions() {
+    let confirmationStarted = false;
+    try {
+        const context = await loadItemUnitSettingsContext();
+        const candidates = context.assistedSanitationCandidates;
+        if (candidates.length === 0) {
+            showItemUnitSettingsFeedback("Não há sugestões prontas para confirmar.", "success");
+            return;
+        }
+        if (!confirmAssistedUnitSuggestionBatch(candidates.length)) return;
+
+        confirmationStarted = true;
+        setItemUnitAssistedSanitationBusy(true);
+        const result = await confirmReadyItemUnitSuggestions(context.selectedTemplate.id, candidates);
+        await refreshItemUnitSettingsView();
+        showItemUnitSettingsFeedback(
+            `${result.confirmedCount} sugestão(ões) confirmada(s). Os perfis explícitos já podem ser exportados no template.`,
+            "success"
+        );
+    } catch (error) {
+        await refreshItemUnitSettingsView().catch(() => null);
+        showItemUnitSettingsFeedback(error.message || "Não foi possível confirmar as sugestões prontas.", "error");
+    } finally {
+        if (confirmationStarted) setItemUnitAssistedSanitationBusy(false);
     }
 }
 
@@ -2003,6 +2050,7 @@ connectItemUnitSettingsEvents({
     onSelectTemplate: selectItemUnitTemplate,
     onAnalyze: analyzeItemUnits,
     onExportTemplate: exportTemplateWithUnitProfiles,
+    onConfirmReadySuggestions: confirmReadyUnitSuggestions,
     onSaveManual: saveManualItemUnit,
     onClearManual: clearManualItemUnit
 });

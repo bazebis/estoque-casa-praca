@@ -7,11 +7,14 @@ import {
     validateItemLocationLink
 } from "./itemLocationLinks.js";
 import {
+    buildAssistedUnitSuggestionPlan,
     inferUnitForTemplateItem,
     normalizeItemUnitSettings,
+    validateAssistedUnitSuggestion,
     validateItemUnitSetting
 } from "./itemUnitSettings.js";
 import {
+    areItemUnitSettingsSemanticallyEqual,
     buildUnitProfileTemplateImportPlan,
     mergeImportedItemUnitSettings
 } from "./itemUnitTemplatePortability.js";
@@ -78,6 +81,15 @@ const currentDraftKey = "current";
 let isStorageInitialized = false;
 let shouldUseIndexedDB = false;
 let storageWarning = "";
+let itemUnitSettingsMutationQueue = Promise.resolve();
+
+function serializeItemUnitSettingsMutation(mutation) {
+    const operation = itemUnitSettingsMutationQueue.then(mutation, mutation);
+
+    // A fila precisa continuar utilizável mesmo quando uma mutação individual falha.
+    itemUnitSettingsMutationQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+}
 
 function readJson(storageKey) {
     const storedValue = localStorage.getItem(storageKey);
@@ -1041,22 +1053,26 @@ async function saveItemUnitSettingsState(settings) {
 
 const activeEntryProfileMutationMessage = "Este item já possui lançamentos em uma contagem aberta. Remova os lançamentos ou finalize/cancele a contagem antes de alterar as unidades.";
 
-async function assertItemUnitProfileCanBeMutated(templateId, itemCode) {
+async function assertItemUnitProfilesCanBeMutated(settings) {
     const [sessions, entries] = await Promise.all([
         listLocationCountSessions(),
         listLocationCountEntries()
     ]);
-    const hasActiveEntries = hasActiveEntriesForItemInOpenSessions({
-        templateId,
-        itemCode,
+    const hasActiveEntries = settings.some((setting) => hasActiveEntriesForItemInOpenSessions({
+        templateId: setting.templateId,
+        itemCode: setting.itemCode,
         sessions,
         entries
-    });
+    }));
 
     if (hasActiveEntries) throw new Error(activeEntryProfileMutationMessage);
 }
 
-export async function saveItemUnitSetting(setting) {
+async function assertItemUnitProfileCanBeMutated(templateId, itemCode) {
+    return assertItemUnitProfilesCanBeMutated([{ templateId, itemCode }]);
+}
+
+async function saveItemUnitSettingSerialized(setting) {
     const template = await getCountTemplate(setting?.templateId);
     const match = findTemplateItem(template, setting?.itemCode);
     if (!match) throw new Error("O item não existe no template selecionado.");
@@ -1080,7 +1096,11 @@ export async function saveItemUnitSetting(setting) {
     return validation.setting;
 }
 
-export async function deleteItemUnitSetting(templateId, itemCode) {
+export async function saveItemUnitSetting(setting) {
+    return serializeItemUnitSettingsMutation(() => saveItemUnitSettingSerialized(setting));
+}
+
+async function deleteItemUnitSettingSerialized(templateId, itemCode) {
     const normalizedTemplateId = String(templateId || "").trim();
     const normalizedItemCode = String(itemCode || "").trim();
     const remainingSettings = (await listItemUnitSettings()).filter((setting) => !(
@@ -1090,13 +1110,98 @@ export async function deleteItemUnitSetting(templateId, itemCode) {
     await saveItemUnitSettingsState(remainingSettings);
 }
 
+export async function deleteItemUnitSetting(templateId, itemCode) {
+    return serializeItemUnitSettingsMutation(() => deleteItemUnitSettingSerialized(templateId, itemCode));
+}
+
+function validateAssistedSuggestionSelection(selectedCandidates, currentCandidates) {
+    const selected = Array.isArray(selectedCandidates) ? selectedCandidates : [];
+    const selectedCodes = selected.map((setting) => String(setting?.itemCode || "").trim());
+    if (selectedCodes.some((itemCode) => !itemCode) || new Set(selectedCodes).size !== selectedCodes.length) {
+        throw new Error("O lote de sugestões possui item inválido ou duplicado.");
+    }
+
+    const currentByItem = new Map(currentCandidates.map((setting) => [setting.itemCode, setting]));
+    const hasChanged = selected.length !== currentCandidates.length || selected.some((setting) => {
+        const currentSetting = currentByItem.get(setting.itemCode);
+        return !currentSetting || !areItemUnitSettingsSemanticallyEqual(setting, currentSetting);
+    });
+    if (hasChanged) throw new Error("As sugestões mudaram desde a confirmação. Atualize a tela e tente novamente.");
+}
+
+async function loadAssistedSuggestionState(templateId) {
+    const [template, currentSettings, sessions, entries] = await Promise.all([
+        getCountTemplate(templateId),
+        listItemUnitSettings(),
+        listLocationCountSessions(),
+        listLocationCountEntries()
+    ]);
+    if (!template) throw new Error("O template selecionado não existe mais.");
+
+    const plan = buildAssistedUnitSuggestionPlan({ template, explicitSettings: currentSettings, previousEntries: entries });
+    if (!plan.isValid) throw new Error(plan.error || "Não foi possível validar as sugestões prontas.");
+    return { template, currentSettings, sessions, entries, plan };
+}
+
+function buildConfirmedSuggestionSettings(candidates, timestamp) {
+    return candidates.map((candidate) => {
+        const eligibility = validateAssistedUnitSuggestion(candidate);
+        if (!eligibility.isEligible) throw new Error(eligibility.error || "Uma sugestão deixou de ser válida.");
+        return normalizeItemUnitSettings([{
+            ...eligibility.setting,
+            source: "manual",
+            confidence: "high",
+            manualUnit: eligibility.setting.defaultInputUnit,
+            createdAt: timestamp,
+            updatedAt: timestamp
+        }])[0];
+    });
+}
+
+function assertNoActiveEntriesForCandidates(state) {
+    const blockedSetting = state.plan.candidates.find((setting) => hasActiveEntriesForItemInOpenSessions({
+        templateId: state.template.id,
+        itemCode: setting.itemCode,
+        sessions: state.sessions,
+        entries: state.entries
+    }));
+    if (blockedSetting) throw new Error(activeEntryProfileMutationMessage);
+}
+
+async function confirmReadyItemUnitSuggestionsSerialized(templateId, selectedCandidates) {
+    const initialState = await loadAssistedSuggestionState(templateId);
+    validateAssistedSuggestionSelection(selectedCandidates, initialState.plan.candidates);
+    assertNoActiveEntriesForCandidates(initialState);
+
+    await assertItemUnitProfilesCanBeMutated(initialState.plan.candidates);
+
+    const writeBoundaryState = await loadAssistedSuggestionState(templateId);
+    validateAssistedSuggestionSelection(selectedCandidates, writeBoundaryState.plan.candidates);
+    assertNoActiveEntriesForCandidates(writeBoundaryState);
+
+    const timestamp = new Date().toISOString();
+    const confirmedSettings = buildConfirmedSuggestionSettings(writeBoundaryState.plan.candidates, timestamp);
+    await saveItemUnitSettingsState([...writeBoundaryState.currentSettings, ...confirmedSettings]);
+    return { confirmedCount: confirmedSettings.length, settings: confirmedSettings };
+}
+
+export async function confirmReadyItemUnitSuggestions(templateId, selectedCandidates = []) {
+    if (!Array.isArray(selectedCandidates) || selectedCandidates.length === 0) {
+        return { confirmedCount: 0, settings: [] };
+    }
+
+    return serializeItemUnitSettingsMutation(
+        () => confirmReadyItemUnitSuggestionsSerialized(templateId, selectedCandidates)
+    );
+}
+
 function createTemplateImportError(plan) {
     const error = new Error(plan.error || "Não foi possível validar o template e seus perfis de unidade.");
     error.importPlan = plan;
     return error;
 }
 
-export async function importCountTemplateWithUnitProfiles(payload, metadata = {}) {
+async function importCountTemplateWithUnitProfilesSerialized(payload, metadata) {
     const templateId = String(payload?.id || "").trim();
     const [existingTemplate, currentSettings, sessions, entries] = await Promise.all([
         getCountTemplate(templateId),
@@ -1139,6 +1244,12 @@ export async function importCountTemplateWithUnitProfiles(payload, metadata = {}
         if (settingsWereSaved) await saveItemUnitSettingsState(currentSettings);
         throw error;
     }
+}
+
+export async function importCountTemplateWithUnitProfiles(payload, metadata = {}) {
+    return serializeItemUnitSettingsMutation(
+        () => importCountTemplateWithUnitProfilesSerialized(payload, metadata)
+    );
 }
 
 export async function listConsolidationSnapshots() {
