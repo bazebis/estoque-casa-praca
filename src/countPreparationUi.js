@@ -166,16 +166,20 @@ function createIssueBlock(title, locations, emptyMessage, includeArea = false) {
 function renderLocationIssues(report) {
     const container = getElement("count-preparation-issues");
     container.innerHTML = "";
-    container.append(
-        createIssueBlock("Locais sem área de relatório", report.locationsWithoutArea, "Nenhum local sem área."),
-        createIssueBlock(
-            "Locais com área fora do template",
-            report.locationsOutsideTemplate,
-            "Nenhum local usa área fora do template.",
-            true
-        ),
-        createIssueBlock("Locais inativos", report.inactiveLocations, "Nenhum local inativo.", true)
-    );
+    const issueDefinitions = [
+        ["Locais sem área de relatório", report.locationsWithoutArea, "Nenhum local sem área."],
+        ["Locais com área fora do template", report.locationsOutsideTemplate, "Nenhum local usa área fora do template.", true],
+        ["Locais inativos", report.inactiveLocations, "Nenhum local inativo.", true]
+    ].filter(([, locations]) => locations.length > 0);
+    if (issueDefinitions.length === 0) {
+        container.appendChild(createTextElement(
+            "p",
+            "Prontidão confirmada: todas as áreas possuem configuração coerente.",
+            "count-preparation-empty-note"
+        ));
+        return;
+    }
+    container.append(...issueDefinitions.map((definition) => createIssueBlock(...definition)));
 }
 
 function renderEmptyState() {

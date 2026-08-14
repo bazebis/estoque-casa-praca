@@ -7,6 +7,8 @@ let editingUnitId = null;
 let finalReportSummaries = [];
 let finalReportDate = null;
 let finalReportCount = null;
+let configModalReturnFocus = null;
+let bodyOverflowBeforeConfigModal = "";
 
 const adminSections = {
     catalog: "admin-section-catalog",
@@ -31,11 +33,27 @@ function getElement(id) {
 }
 
 function openModal(modalId) {
-    getElement(modalId).style.display = "block";
+    const modal = getElement(modalId);
+    modal.style.display = "block";
+    modal.setAttribute("aria-hidden", "false");
 }
 
 function closeModal(modalId) {
-    getElement(modalId).style.display = "none";
+    const modal = getElement(modalId);
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+}
+
+function isConfigModalOpen() {
+    return getElement("configModal").style.display === "block";
+}
+
+function focusCurrentAdminView(sectionName) {
+    if (!isConfigModalOpen()) return;
+    const target = sectionName === "menu"
+        ? getElement("admin-menu").querySelector(".admin-menu-button:not(.pilot-hidden)")
+        : getElement(adminSections[sectionName])?.querySelector(".admin-back-button, button, input, select");
+    (target || getElement("btn-fechar-config")).focus();
 }
 
 function showAdminSection(sectionName) {
@@ -47,6 +65,8 @@ function showAdminSection(sectionName) {
     Object.entries(adminSections).forEach(([name, sectionId]) => {
         getElement(sectionId).hidden = shouldShowMenu || name !== sectionName;
     });
+    getElement("configModal").scrollTop = 0;
+    focusCurrentAdminView(shouldShowMenu ? "menu" : sectionName);
 }
 
 export function showAdminMenu() {
@@ -887,16 +907,19 @@ export function renderBackupImportPreview(preview) {
     const list = document.createElement("ul");
     list.className = "backup-preview-list";
 
-    [
+    const summaryItems = [
         `Exportado em: ${formatBackupDate(preview.exportedAt)}`,
         `Schema: ${preview.schemaVersion}`,
         `Itens no catálogo: ${preview.catalogCount}`,
         `Contagens no histórico: ${preview.historyCount}`,
         `Unidades personalizadas: ${preview.customUnitsCount || 0}`,
         `Templates de contagem: ${preview.templateCount || 0}`,
-        `Perfis explícitos de unidade: ${preview.itemUnitSettingsCount || 0}`,
-        `Rascunho no arquivo: ${preview.hasDraft ? "sim" : "não"}`
-    ].forEach((text) => {
+        `Perfis explícitos de unidade: ${preview.itemUnitSettingsCount || 0}`
+    ];
+    if (preview.schemaVersion === 1 && preview.hasDraft) {
+        summaryItems.push("O backup legado contém um rascunho antigo somente para compatibilidade.");
+    }
+    summaryItems.forEach((text) => {
         const item = document.createElement("li");
         item.textContent = text;
         list.appendChild(item);
@@ -925,7 +948,7 @@ export function renderStorageStatusNotice(status) {
     }
 
     if (status?.migrated && status?.isUsingIndexedDB) {
-        container.textContent = "Dados locais preparados no IndexedDB.";
+        container.textContent = "Dados locais preparados com sucesso neste aparelho.";
         container.hidden = false;
         return;
     }
@@ -1139,6 +1162,11 @@ export function showFinalSummary(summaries, generatedAt = new Date(), finalizedC
 }
 
 export function openConfigModal(items, handlers, unitHandlers, initialSection = "menu") {
+    if (!isConfigModalOpen()) {
+        configModalReturnFocus = document.activeElement;
+        bodyOverflowBeforeConfigModal = document.body.style.overflow;
+    }
+    document.body.style.overflow = "hidden";
     openModal("configModal");
     updateConfigList(items, handlers);
     renderUnitsList(unitHandlers.getUnits(), unitHandlers);
@@ -1146,11 +1174,15 @@ export function openConfigModal(items, handlers, unitHandlers, initialSection = 
 }
 
 export function closeConfigModal() {
+    if (!isConfigModalOpen()) return;
     editingItemId = null;
     editingUnitId = null;
     hideHistoryView();
     showAdminSection("menu");
     closeModal("configModal");
+    document.body.style.overflow = bodyOverflowBeforeConfigModal;
+    configModalReturnFocus?.focus?.();
+    configModalReturnFocus = null;
 }
 
 export function sendWhatsappMessage() {
@@ -1301,6 +1333,19 @@ function connectAdminNavigationEvents(handlers) {
     });
 }
 
+function connectConfigModalEvents() {
+    const modal = getElement("configModal");
+    modal.addEventListener("click", (event) => {
+        if (event.target === modal) closeConfigModal();
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !isConfigModalOpen()) return;
+        if (document.body.classList.contains("item-unit-editor-open")) return;
+        event.preventDefault();
+        closeConfigModal();
+    });
+}
+
 export function connectEvents(handlers) {
     getElement("btn-iniciar-contagem").addEventListener("click", handlers.onStartCounting);
     getElement("btn-config").addEventListener("click", handlers.onOpenConfig);
@@ -1314,6 +1359,7 @@ export function connectEvents(handlers) {
         }
     });
     getElement("btn-fechar-config").addEventListener("click", closeConfigModal);
+    connectConfigModalEvents();
     connectAdminNavigationEvents(handlers);
     connectCatalogImportEvents(handlers);
     connectBackupEvents(handlers);

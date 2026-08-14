@@ -188,26 +188,35 @@ function renderDiagnostics(report) {
     const container = getElement("location-item-map-diagnostics");
     const diagnostics = report.diagnostics;
     container.innerHTML = "";
-    const blocks = [
-        createDiagnosticBlock("Locais ativos sem itens", diagnostics.locationsWithoutItems, "Todos possuem vínculo.", getLocationPathLabel),
-        createDiagnosticBlock("Vínculos inativos", diagnostics.inactiveLinks, "Nenhum vínculo inativo.", linkLabel),
-        createDiagnosticBlock("Vínculos órfãos", diagnostics.orphanLinks, "Nenhum vínculo órfão.", ({ link, reasons }) => `${linkLabel(link)} · ${reasons.map((reason) => orphanReasonLabels[reason]).join(", ")}`),
-        createDiagnosticBlock("Área do vínculo diferente do local", diagnostics.areaSnapshotMismatches, "Nenhuma divergência de snapshot.", linkLabel),
-        createDiagnosticBlock("Vínculos em local sem área", diagnostics.linksInLocationsWithoutArea, "Nenhum vínculo nessa situação.", linkLabel),
-        createDiagnosticBlock("Vínculos em local inativo", diagnostics.linksInInactiveLocations, "Nenhum vínculo nessa situação.", linkLabel),
-        createDiagnosticBlock("Área do local fora do item/grupo", diagnostics.linksOutsideItemAreas, "Nenhuma área incompatível.", linkLabel),
-        createDiagnosticBlock("Locais sem área de relatório", diagnostics.locationsWithoutArea, "Nenhum local sem área.", getLocationPathLabel),
-        createDiagnosticBlock("Locais com área fora do template", diagnostics.locationsOutsideTemplate, "Nenhuma área fora do template.", (location) => `${getLocationPathLabel(location)} · ${location.reportArea}`)
+    const diagnosticDefinitions = [
+        ["Locais ativos sem itens", diagnostics.locationsWithoutItems, "Todos possuem vínculo.", getLocationPathLabel],
+        ["Vínculos inativos", diagnostics.inactiveLinks, "Nenhum vínculo inativo.", linkLabel],
+        ["Vínculos órfãos", diagnostics.orphanLinks, "Nenhum vínculo órfão.", ({ link, reasons }) => `${linkLabel(link)} · ${reasons.map((reason) => orphanReasonLabels[reason]).join(", ")}`],
+        ["Área do vínculo diferente do local", diagnostics.areaSnapshotMismatches, "Nenhuma divergência registrada.", linkLabel],
+        ["Vínculos em local sem área", diagnostics.linksInLocationsWithoutArea, "Nenhum vínculo nessa situação.", linkLabel],
+        ["Vínculos em local inativo", diagnostics.linksInInactiveLocations, "Nenhum vínculo nessa situação.", linkLabel],
+        ["Área do local fora do item/grupo", diagnostics.linksOutsideItemAreas, "Nenhuma área incompatível.", linkLabel],
+        ["Locais sem área de relatório", diagnostics.locationsWithoutArea, "Nenhum local sem área.", getLocationPathLabel],
+        ["Locais com área fora do template", diagnostics.locationsOutsideTemplate, "Nenhuma área fora do template.", (location) => `${getLocationPathLabel(location)} · ${location.reportArea}`]
     ];
     if (report.appliedFilters?.showItemsWithoutLocation !== false) {
-        blocks.splice(1, 0, createDiagnosticBlock(
+        diagnosticDefinitions.splice(1, 0, [
             "Itens do template sem local",
             diagnostics.itemsWithoutLocation,
             "Todos possuem local.",
             ({ item, group }) => `${item.code} — ${item.name} · ${group.name}`
-        ));
+        ]);
     }
-    container.append(...blocks);
+    const actionableDefinitions = diagnosticDefinitions.filter(([, entries]) => entries.length > 0);
+    if (actionableDefinitions.length === 0) {
+        container.appendChild(createTextElement(
+            "p",
+            "Nenhum problema encontrado nos vínculos e locais deste template.",
+            "location-item-map-empty-note"
+        ));
+        return;
+    }
+    container.append(...actionableDefinitions.map((definition) => createDiagnosticBlock(...definition)));
 }
 
 function renderMapContent() {

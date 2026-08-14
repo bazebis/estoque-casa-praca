@@ -571,7 +571,7 @@ async function runWithFallback(dbOperation, fallbackOperation) {
         return await dbOperation();
     } catch (error) {
         shouldUseIndexedDB = false;
-        storageWarning = "IndexedDB falhou. Usando LocalStorage como fallback.";
+        storageWarning = "O armazenamento principal falhou. Os dados continuarão sendo salvos neste navegador pelo modo alternativo.";
         console.warn(storageWarning, error);
         return fallbackOperation();
     }
@@ -584,7 +584,7 @@ export async function initializeStorage() {
 
     if (!isIndexedDBAvailable()) {
         shouldUseIndexedDB = false;
-        storageWarning = "IndexedDB indisponível. Usando LocalStorage como fallback.";
+        storageWarning = "O armazenamento principal não está disponível. Os dados serão salvos neste navegador pelo modo alternativo.";
         isStorageInitialized = true;
         return getStorageStatus();
     }
@@ -610,7 +610,7 @@ export async function initializeStorage() {
         };
     } catch (error) {
         shouldUseIndexedDB = false;
-        storageWarning = "IndexedDB falhou. Usando LocalStorage como fallback.";
+        storageWarning = "O armazenamento principal falhou. Os dados continuarão sendo salvos neste navegador pelo modo alternativo.";
         isStorageInitialized = true;
         console.warn(storageWarning, error);
         return getStorageStatus();
@@ -826,12 +826,39 @@ function findChangedProfiles(currentSettings, nextSettings) {
     )).map((key) => currentByKey.get(key) || nextByKey.get(key));
 }
 
-function hasOpenSessionPlannedForProfile(setting, sessions) {
-    return normalizeLocationCountSessions(sessions).some((session) => (
-        session.templateId === setting.templateId
+const activeEntryProfileMutationMessage = "Este item já possui lançamentos em uma contagem aberta. Remova os lançamentos ou finalize/cancele a contagem antes de alterar as unidades.";
+const plannedItemProfileMutationMessage = "Este item está planejado em uma contagem aberta, mesmo sem lançamento. Finalize ou cancele a contagem antes de alterar as unidades.";
+
+export function getItemUnitProfileMutationBlockReason({
+    templateId,
+    itemCode,
+    sessions = [],
+    entries = [],
+    includePlannedItems = false
+} = {}) {
+    const normalizedTemplateId = String(templateId || "").trim();
+    const normalizedItemCode = String(itemCode || "").trim();
+    const normalizedSessions = normalizeLocationCountSessions(sessions);
+
+    if (hasActiveEntriesForItemInOpenSessions({
+        templateId: normalizedTemplateId,
+        itemCode: normalizedItemCode,
+        sessions: normalizedSessions,
+        entries
+    })) {
+        return { type: "active-entry", message: activeEntryProfileMutationMessage };
+    }
+
+    if (!includePlannedItems) return null;
+    const isPlannedInOpenSession = normalizedSessions.some((session) => (
+        session.templateId === normalizedTemplateId
         && ["draft", "in_progress"].includes(session.status)
-        && session.plannedItems.some((item) => item.active && item.itemCode === setting.itemCode)
+        && session.plannedItems.some((item) => item.active && item.itemCode === normalizedItemCode)
     ));
+
+    return isPlannedInOpenSession
+        ? { type: "planned-item", message: plannedItemProfileMutationMessage }
+        : null;
 }
 
 function assertBackupRestoreSessionsAreSafe(plan, sessions, entries) {
@@ -844,23 +871,21 @@ function assertBackupRestoreSessionsAreSafe(plan, sessions, entries) {
         changedTemplateIds.has(session.templateId) && ["draft", "in_progress"].includes(session.status)
     ));
     if (hasRelatedOpenSession) {
-        throw new Error("Finalize ou cancele a contagem aberta antes de restaurar templates deste backup.");
+        throw new Error("Este backup alteraria um template relacionado a uma sessão aberta. Finalize ou cancele essa contagem antes da restauração.");
     }
 
     const changedProfiles = findChangedProfiles(
         plan.currentState.itemUnitSettings,
         plan.nextState.itemUnitSettings
     );
-    const hasProtectedProfile = changedProfiles.some((setting) => (
-        hasOpenSessionPlannedForProfile(setting, sessions)
-        || hasActiveEntriesForItemInOpenSessions({
-            templateId: setting.templateId,
-            itemCode: setting.itemCode,
-            sessions,
-            entries
-        })
-    ));
-    if (hasProtectedProfile) throw new Error(activeEntryProfileMutationMessage);
+    const blockReason = changedProfiles.map((setting) => getItemUnitProfileMutationBlockReason({
+        templateId: setting.templateId,
+        itemCode: setting.itemCode,
+        sessions,
+        entries,
+        includePlannedItems: true
+    })).find(Boolean);
+    if (blockReason) throw new Error(blockReason.message);
 }
 
 function createInternalBackupRecord(currentState) {
@@ -1010,11 +1035,30 @@ export async function saveCountTemplate(template) {
     return normalizedTemplate;
 }
 
-export async function deleteCountTemplate(templateId) {
+async function deleteCountTemplateSerialized(templateId) {
     const normalizedId = String(templateId || "").trim();
 
     if (!normalizedId) {
         return;
+    }
+
+    const [settings, links, sessions, entries] = await Promise.all([
+        listItemUnitSettings(),
+        listItemLocationLinks(),
+        listLocationCountSessions(),
+        listLocationCountEntries()
+    ]);
+    if (settings.some((setting) => setting.templateId === normalizedId)) {
+        throw new Error("Este template possui perfis explícitos de unidade. Preserve-os ou remova-os de forma consciente antes de excluir o template.");
+    }
+    if (links.some((link) => link.templateId === normalizedId)) {
+        throw new Error("Este template possui vínculos com locais. Remova os vínculos antes de excluir o template.");
+    }
+    if (sessions.some((session) => session.templateId === normalizedId)) {
+        throw new Error("Este template possui sessões de contagem, inclusive históricas. O template deve ser preservado.");
+    }
+    if (entries.some((entry) => entry.templateId === normalizedId)) {
+        throw new Error("Este template possui entradas de contagem associadas. O template deve ser preservado.");
     }
 
     await runWithFallback(
@@ -1022,6 +1066,10 @@ export async function deleteCountTemplate(templateId) {
         () => deleteLocalCountTemplate(normalizedId)
     );
     deleteLocalCountTemplate(normalizedId);
+}
+
+export async function deleteCountTemplate(templateId) {
+    return serializeItemUnitSettingsMutation(() => deleteCountTemplateSerialized(templateId));
 }
 
 export async function listLocationNodes() {
@@ -1067,17 +1115,31 @@ export async function saveLocationNode(node) {
     return validation.node;
 }
 
-export async function deleteLocationNode(locationId) {
+async function deleteLocationNodeSerialized(locationId) {
     const normalizedId = String(locationId || "").trim();
 
     if (!normalizedId) {
         return;
     }
 
-    const existingNodes = await listLocationNodes();
+    const [existingNodes, links, sessions, entries] = await Promise.all([
+        listLocationNodes(),
+        listItemLocationLinks(),
+        listLocationCountSessions(),
+        listLocationCountEntries()
+    ]);
 
     if (existingNodes.some((node) => node.parentId === normalizedId)) {
-        throw new Error("Não é possível remover um local que possui filhos.");
+        throw new Error("Este local possui subdivisões. Remova ou reorganize os locais filhos antes de excluí-lo.");
+    }
+    if (links.some((link) => link.locationId === normalizedId)) {
+        throw new Error("Este local possui vínculos de itens, ativos ou inativos. Remova os vínculos ou desative o local.");
+    }
+    if (sessions.some((session) => session.locationId === normalizedId)) {
+        throw new Error("Este local possui sessões de contagem, inclusive históricas. Desative o local em vez de excluí-lo.");
+    }
+    if (entries.some((entry) => entry.locationId === normalizedId)) {
+        throw new Error("Este local possui entradas de contagem associadas. Desative o local em vez de excluí-lo.");
     }
 
     await runWithFallback(
@@ -1085,6 +1147,10 @@ export async function deleteLocationNode(locationId) {
         () => deleteLocalLocationNode(normalizedId)
     );
     deleteLocalLocationNode(normalizedId);
+}
+
+export async function deleteLocationNode(locationId) {
+    return serializeItemUnitSettingsMutation(() => deleteLocationNodeSerialized(locationId));
 }
 
 export async function listItemLocationLinks() {
@@ -1256,21 +1322,19 @@ async function saveItemUnitSettingsState(settings) {
     return normalizedSettings;
 }
 
-const activeEntryProfileMutationMessage = "Este item já possui lançamentos em uma contagem aberta. Remova os lançamentos ou finalize/cancele a contagem antes de alterar as unidades.";
-
 async function assertItemUnitProfilesCanBeMutated(settings) {
     const [sessions, entries] = await Promise.all([
         listLocationCountSessions(),
         listLocationCountEntries()
     ]);
-    const hasActiveEntries = settings.some((setting) => hasActiveEntriesForItemInOpenSessions({
+    const blockReason = settings.map((setting) => getItemUnitProfileMutationBlockReason({
         templateId: setting.templateId,
         itemCode: setting.itemCode,
         sessions,
         entries
-    }));
+    })).find(Boolean);
 
-    if (hasActiveEntries) throw new Error(activeEntryProfileMutationMessage);
+    if (blockReason) throw new Error(blockReason.message);
 }
 
 async function assertItemUnitProfileCanBeMutated(templateId, itemCode) {
@@ -1750,16 +1814,22 @@ export async function cancelLocationCountSession(sessionId) {
     });
 }
 
-export async function deleteLocationCountSession(sessionId) {
+async function deleteLocationCountSessionSerialized(sessionId) {
     const normalizedId = String(sessionId || "").trim();
 
     if (!normalizedId) {
         return;
     }
 
+    const session = await getLocationCountSession(normalizedId);
+    if (!session) return;
+    if (!["draft", "canceled"].includes(session.status)) {
+        throw new Error("Somente sessões em rascunho ou canceladas podem ser removidas permanentemente.");
+    }
+
     const relatedEntries = await listEntriesBySession(normalizedId);
     if (relatedEntries.length > 0) {
-        throw new Error("Não é possível remover uma sessão que já possui entradas de contagem.");
+        throw new Error("Esta sessão possui entradas de contagem preservadas e não pode ser removida permanentemente.");
     }
 
     await runWithFallback(
@@ -1767,6 +1837,10 @@ export async function deleteLocationCountSession(sessionId) {
         () => deleteLocalLocationCountSession(normalizedId)
     );
     deleteLocalLocationCountSession(normalizedId);
+}
+
+export async function deleteLocationCountSession(sessionId) {
+    return serializeItemUnitSettingsMutation(() => deleteLocationCountSessionSerialized(sessionId));
 }
 
 export async function listLocationCountEntries() {

@@ -252,7 +252,7 @@
         <button id="btn-recomecar-contagem">Nova Contagem</button>
     </div>
 
-    <div id="configModal" class="modal">
+    <div id="configModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="admin-title" aria-hidden="true">
         <div class="modal-content admin-content">
             <div class="admin-topbar">
                 <h2 id="admin-title">Configurações</h2>
@@ -260,21 +260,36 @@
             </div>
 
             <section id="admin-menu" class="admin-menu" aria-label="Menu de configurações">
-                <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="catalog">Catálogo de itens</button>
-                <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="catalog-import">Importar catálogo CSV</button>
-                <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="units">Unidades e conversões</button>
-                <button type="button" class="admin-menu-button admin-menu-primary" data-admin-target="quick-pilot">Piloto rápido</button>
-                <button type="button" class="admin-menu-button" data-admin-target="templates">Templates de contagem</button>
-                <button type="button" class="admin-menu-button" data-admin-target="item-unit-settings">Unidades padrão</button>
-                <button type="button" class="admin-menu-button" data-admin-target="whatsapp-settings">WhatsApp de envio</button>
-                <button type="button" class="admin-menu-button" data-admin-target="locations">Locais físicos</button>
-                <button type="button" class="admin-menu-button" data-admin-target="item-locations">Itens por local</button>
-                <button type="button" class="admin-menu-button" data-admin-target="location-item-map">Mapa de itens por local</button>
-                <button type="button" class="admin-menu-button" data-admin-target="preparation">Preparação da contagem</button>
-                <button type="button" class="admin-menu-button" data-admin-target="location-count-sessions">Sessões de contagem</button>
-                <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="history">Histórico de contagens</button>
-                <button type="button" class="admin-menu-button" data-admin-target="backup">Backup e restauração</button>
-                <button type="button" class="admin-menu-button" data-admin-target="about">Sobre o app</button>
+                <div class="admin-menu-group">
+                    <h3>Configuração principal</h3>
+                    <div class="admin-menu-group-actions">
+                        <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="catalog">Catálogo de itens</button>
+                        <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="catalog-import">Importar catálogo CSV</button>
+                        <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="units">Unidades e conversões</button>
+                        <button type="button" class="admin-menu-button admin-menu-primary" data-admin-target="quick-pilot">Piloto rápido</button>
+                        <button type="button" class="admin-menu-button" data-admin-target="templates">Templates de contagem</button>
+                        <button type="button" class="admin-menu-button" data-admin-target="item-unit-settings">Unidades padrão</button>
+                        <button type="button" class="admin-menu-button" data-admin-target="whatsapp-settings">WhatsApp de envio</button>
+                    </div>
+                </div>
+                <div class="admin-menu-group">
+                    <h3>Estrutura e diagnóstico</h3>
+                    <div class="admin-menu-group-actions">
+                        <button type="button" class="admin-menu-button" data-admin-target="locations">Locais físicos</button>
+                        <button type="button" class="admin-menu-button" data-admin-target="item-locations">Itens por local</button>
+                        <button type="button" class="admin-menu-button" data-admin-target="preparation">Preparação da contagem</button>
+                        <button type="button" class="admin-menu-button" data-admin-target="location-item-map">Mapa de itens por local</button>
+                        <button type="button" class="admin-menu-button" data-admin-target="location-count-sessions">Sessões de contagem</button>
+                        <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="history">Histórico de contagens</button>
+                    </div>
+                </div>
+                <div class="admin-menu-group">
+                    <h3>Segurança e dados</h3>
+                    <div class="admin-menu-group-actions">
+                        <button type="button" class="admin-menu-button" data-admin-target="backup">Backup e restauração</button>
+                        <button type="button" class="admin-menu-button" data-admin-target="about">Sobre o app</button>
+                    </div>
+                </div>
             </section>
 
             <section id="admin-section-quick-pilot" class="admin-section quick-pilot-section" hidden>
@@ -303,7 +318,7 @@
             <section id="admin-section-whatsapp-settings" class="admin-section whatsapp-settings-section" hidden>
                 <button type="button" class="admin-back-button">Voltar para configurações</button>
                 <h3>WhatsApp de envio</h3>
-                <p>Cadastre dados opcionais para preparar um envio manual futuro.</p>
+                <p>Cadastre dados opcionais usados para preparar a mensagem de envio dos fechamentos pelo WhatsApp.</p>
                 <form id="whatsapp-settings-form" class="whatsapp-settings-form">
                     <label for="whatsapp-recipient-name">Nome do destinatário</label>
                     <input type="text" id="whatsapp-recipient-name" maxlength="120" autocomplete="off" placeholder="Opcional">
@@ -391,7 +406,7 @@
                     Template
                     <select id="item-unit-template"></select>
                 </label>
-                <button type="button" id="btn-analyze-item-units">Atualizar perfis automáticos</button>
+                <button type="button" id="btn-analyze-item-units">Recarregar análise</button>
                 <div id="item-unit-portability" class="item-unit-portability" hidden>
                     <p id="item-unit-portability-summary"></p>
                     <button type="button" id="btn-download-template-with-units">Baixar template com unidades</button>
@@ -439,7 +454,7 @@
             <section id="admin-section-locations" class="admin-section location-nodes-section" hidden>
                 <button type="button" class="admin-back-button">Voltar para configurações</button>
                 <h3>Locais físicos</h3>
-                <p>Organize cômodos, equipamentos e subdivisões. Estes locais ainda não alteram a contagem atual.</p>
+                <p>Organize os locais usados para vincular itens e preparar as sessões atuais de contagem.</p>
                 <div id="location-nodes-summary" class="location-nodes-summary"></div>
                 <button type="button" id="btn-add-root-location">Criar local raiz</button>
                 <p id="location-nodes-feedback" class="location-nodes-feedback" aria-live="polite"></p>
@@ -470,7 +485,7 @@
             <section id="admin-section-preparation" class="admin-section count-preparation-section" hidden>
                 <button type="button" class="admin-back-button">Voltar para configurações</button>
                 <h3>Preparação da contagem</h3>
-                <p>Confira se as áreas do template importado possuem locais físicos configurados. Esta prévia não altera nenhum dado.</p>
+                <p>Veja um resumo de prontidão das áreas e locais. Para vínculos e inconsistências detalhadas, use o Mapa de itens por local.</p>
 
                 <label id="count-preparation-template-field" class="count-preparation-template-field" for="count-preparation-template">
                     Template analisado
@@ -544,7 +559,7 @@
             <section id="admin-section-location-item-map" class="admin-section location-item-map-section" hidden>
                 <button type="button" class="admin-back-button">Voltar para configurações</button>
                 <h3>Mapa de itens por local</h3>
-                <p>Visualize os vínculos organizados pela árvore de locais. Esta tela é somente leitura e não inicia uma contagem.</p>
+                <p>Investigue vínculos, itens sem local e inconsistências. Esta tela é somente leitura e não inicia uma contagem.</p>
 
                 <label id="location-item-map-template-field" for="location-item-map-template">
                     Template analisado
@@ -601,8 +616,8 @@
                 <h3>Sessões de contagem</h3>
                 <p>Prepare uma lista congelada dos itens vinculados a um local físico.</p>
                 <div class="location-count-session-scope-notice">
-                    <strong>Esta seção administra os rascunhos e snapshots das sessões.</strong>
-                    <span>As quantidades simples são registradas pela tela inicial, sem finalização nesta etapa.</span>
+                    <strong>Esta seção administra sessões preparadas para a contagem.</strong>
+                    <span>Cancelar preserva a sessão como Cancelada; remover é permanente e só aparece quando for seguro.</span>
                 </div>
 
                 <label id="location-count-session-template-field" for="location-count-session-template">
@@ -698,7 +713,8 @@
                     <li>O template JSON deve ser importado manualmente em cada aparelho.</li>
                     <li>O Piloto rápido pode criar áreas macro e vínculos automaticamente; os módulos detalhados continuam disponíveis para ajustes manuais.</li>
                     <li>A configuração de WhatsApp é opcional, local e não realiza envios automáticos.</li>
-                    <li>A contagem por área aceita múltiplas entradas, converte unidades previstas no perfil e oferece uma prévia somente leitura, sem consolidação final ou exportação oficial.</li>
+                    <li>A contagem por área aceita múltiplas entradas, converte unidades previstas no perfil e consolida os totais com precisão.</li>
+                    <li>Os fechamentos podem ser preservados e exportados em CSV ou XLSX, com apoio para envio manual pelo WhatsApp.</li>
                     <li>Ainda não existe integração com ERP ou API.</li>
                     <li>Ainda não existe sincronização de dados entre aparelhos.</li>
                     <li>Depois do primeiro carregamento ou instalação, o app pode abrir offline.</li>

@@ -1308,11 +1308,19 @@ async function saveManualItemUnit(itemCode, overrides) {
 }
 
 async function clearManualItemUnit(itemCode) {
-    if (!window.confirm("Limpar a configuração manual deste item e voltar ao perfil automático?")) return null;
+    const confirmationMessage = [
+        "Remover o perfil explícito deste item?",
+        "Uma sugestão automática poderá continuar aparecendo, mas ela não autoriza novas contagens.",
+        "O item ficará bloqueado para novos lançamentos até que um perfil explícito válido seja salvo novamente."
+    ].join("\n\n");
+    if (!window.confirm(confirmationMessage)) return null;
     try {
         await deleteItemUnitSetting(selectedItemUnitTemplateId, itemCode);
         await refreshItemUnitSettingsView();
-        showItemUnitSettingsFeedback("Configuração removida; o perfil automático voltou a valer.", "success");
+        showItemUnitSettingsFeedback(
+            "Perfil explícito removido. A sugestão automática é apenas informativa; salve um perfil explícito válido antes de realizar nova contagem deste item.",
+            "warning"
+        );
         return true;
     } catch (error) {
         showItemUnitSettingsFeedback(error.message || "Não foi possível limpar a unidade manual.", "error");
@@ -1484,8 +1492,8 @@ async function removeCountTemplate(templateId) {
         await refreshCountTemplatesView();
         await refreshPilotDashboard();
         showCountTemplateFeedback("Template removido.", "success");
-    } catch {
-        showCountTemplateFeedback("Não foi possível remover o template.", "error");
+    } catch (error) {
+        showCountTemplateFeedback(error.message || "Não foi possível remover o template.", "error");
     }
 }
 
@@ -1758,11 +1766,12 @@ async function selectLocationItemMapTemplate(templateId) {
 }
 
 async function refreshLocationCountSessionsView() {
-    const [templates, locations, links, sessions] = await Promise.all([
+    const [templates, locations, links, sessions, entries] = await Promise.all([
         listCountTemplates(),
         listLocationNodes(),
         listItemLocationLinks(),
-        listLocationCountSessions()
+        listLocationCountSessions(),
+        listLocationCountEntries()
     ]);
     const selectedTemplate = templates.find((item) => item.id === selectedLocationCountSessionTemplateId)
         || templates[0]
@@ -1774,7 +1783,15 @@ async function refreshLocationCountSessionsView() {
 
     selectedLocationCountSessionTemplateId = selectedTemplate?.id || null;
     selectedLocationCountSessionLocationId = selectedLocation?.id || null;
-    renderLocationCountSessions({ templates, locations, links, sessions, selectedTemplate, selectedLocation }, locationCountSessionHandlers);
+    renderLocationCountSessions({
+        templates,
+        locations,
+        links,
+        sessions,
+        entries,
+        selectedTemplate,
+        selectedLocation
+    }, locationCountSessionHandlers);
 }
 
 async function openLocationCountSessions() {
@@ -1820,7 +1837,9 @@ async function cancelLocationCountDraft(sessionId) {
         const session = (await listLocationCountSessions()).find((item) => item.id === sessionId);
         const locationPath = session?.locationPathSnapshot.join(" › ") || "este local";
 
-        if (!session || !window.confirm(`Cancelar o rascunho de ${locationPath}?`)) return;
+        if (!session || !window.confirm(
+            `Cancelar o rascunho de ${locationPath}? A sessão será preservada com o status Cancelada.`
+        )) return;
 
         await cancelLocationCountSession(sessionId);
         await refreshLocationCountSessionsView();
@@ -1835,7 +1854,9 @@ async function removeLocationCountSession(sessionId) {
     try {
         const session = (await listLocationCountSessions()).find((item) => item.id === sessionId);
 
-        if (!session || !window.confirm("Remover permanentemente esta sessão preparada?")) return;
+        if (!session || !window.confirm(
+            "Remover permanentemente esta sessão? Esta ação só é permitida para rascunhos ou sessões canceladas sem nenhuma entrada e não pode ser desfeita."
+        )) return;
 
         await deleteLocationCountSession(sessionId);
         await refreshLocationCountSessionsView();
@@ -1896,8 +1917,8 @@ async function removePhysicalLocation(locationId) {
         await refreshLocationNodesView();
         await refreshPilotDashboard();
         showLocationNodesFeedback("Local removido.", "success");
-    } catch {
-        showLocationNodesFeedback("Não foi possível remover o local.", "error");
+    } catch (error) {
+        showLocationNodesFeedback(error.message || "Não foi possível remover o local.", "error");
     }
 }
 

@@ -199,7 +199,14 @@ function createSessionDetails(session) {
     return details;
 }
 
-function createSessionActions(session, handlers) {
+function getSessionRemovalUnavailableMessage(session, hasEntries) {
+    if (hasEntries) return "Remoção permanente indisponível: esta sessão possui entradas preservadas.";
+    if (session.status === "in_progress") return "Sessões em andamento devem ser finalizadas; elas não podem ser removidas.";
+    if (session.status === "completed") return "Sessões finalizadas são históricas e não podem ser removidas.";
+    return "Esta sessão não pode ser removida no estado atual.";
+}
+
+function createSessionActions(session, handlers, hasEntries) {
     const actions = document.createElement("div");
     actions.className = "location-count-session-actions";
     if (session.status === "draft") {
@@ -209,15 +216,24 @@ function createSessionActions(session, handlers) {
             () => handlers.onCancelSession(session.id)
         ));
     }
-    actions.appendChild(createButton(
-        "Remover sessão",
-        "location-count-session-danger-button",
-        () => handlers.onDeleteSession(session.id)
-    ));
+    const canRemovePermanently = ["draft", "canceled"].includes(session.status) && !hasEntries;
+    if (canRemovePermanently) {
+        actions.appendChild(createButton(
+            "Remover permanentemente",
+            "location-count-session-danger-button",
+            () => handlers.onDeleteSession(session.id)
+        ));
+    } else {
+        actions.appendChild(createTextElement(
+            "p",
+            getSessionRemovalUnavailableMessage(session, hasEntries),
+            "location-count-session-removal-note"
+        ));
+    }
     return actions;
 }
 
-function createSessionCard(session, handlers) {
+function createSessionCard(session, handlers, hasEntries) {
     const card = document.createElement("article");
     const status = statusLabels[session.status] || session.status;
     card.className = `location-count-session-card is-${session.status}`;
@@ -227,19 +243,24 @@ function createSessionCard(session, handlers) {
         createSessionMetadata(session)
     );
     if (session.notes) card.appendChild(createTextElement("p", `Observações: ${session.notes}`));
-    card.append(createSessionDetails(session), createSessionActions(session, handlers));
+    card.append(createSessionDetails(session), createSessionActions(session, handlers, hasEntries));
     return card;
 }
 
-function renderSessions(sessions, handlers) {
+function renderSessions(sessions, entries, handlers) {
     const container = getElement("location-count-sessions-list");
+    const sessionIdsWithEntries = new Set((entries || []).map((entry) => entry.sessionId));
     container.innerHTML = "";
     renderSessionSummary(sessions);
     if (sessions.length === 0) {
         container.appendChild(createTextElement("p", "Nenhuma sessão preparada neste aparelho.", "location-count-session-empty"));
         return;
     }
-    sessions.forEach((session) => container.appendChild(createSessionCard(session, handlers)));
+    sessions.forEach((session) => container.appendChild(createSessionCard(
+        session,
+        handlers,
+        sessionIdsWithEntries.has(session.id)
+    )));
 }
 
 export function renderLocationCountSessions(viewModel, handlers) {
@@ -247,7 +268,7 @@ export function renderLocationCountSessions(viewModel, handlers) {
     renderLocationOptions(viewModel);
     renderRequirementStates(viewModel);
     if (viewModel.selectedTemplate && viewModel.locations.length > 0) renderPreparation(viewModel);
-    renderSessions(viewModel.sessions, handlers);
+    renderSessions(viewModel.sessions, viewModel.entries, handlers);
 }
 
 export function connectLocationCountSessionEvents(handlers) {

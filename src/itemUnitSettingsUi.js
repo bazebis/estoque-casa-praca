@@ -103,7 +103,14 @@ function renderPortabilitySummary(summary) {
 
 function renderAssistedSanitationSummary(summary) {
     const container = getElement("item-unit-assisted-sanitation");
-    container.hidden = !summary;
+    const isSanitationComplete = Boolean(
+        summary
+        && summary.itemCount > 0
+        && summary.explicitProfileCount >= summary.itemCount
+        && summary.eligibleSuggestionCount === 0
+        && summary.remainingNeedsReviewCount === 0
+    );
+    container.hidden = !summary || isSanitationComplete;
     if (!summary) return;
 
     getElement("item-unit-assisted-sanitation-summary").textContent = [
