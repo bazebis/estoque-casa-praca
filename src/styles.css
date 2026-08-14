@@ -232,6 +232,101 @@ textarea:focus-visible {
     color: #ffe49c !important;
 }
 
+.physical-hierarchy-header {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    margin-bottom: var(--space-3);
+}
+
+.physical-hierarchy-header button {
+    width: auto;
+    min-height: 44px;
+    margin: 0;
+}
+
+.physical-hierarchy-breadcrumb {
+    min-width: 0;
+    color: var(--color-text-muted);
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.physical-hierarchy-breadcrumb[hidden],
+.physical-hierarchy-direct-items[hidden] {
+    display: none;
+}
+
+.physical-location-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-3);
+    min-height: 92px;
+    padding: var(--space-3);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    text-align: left;
+}
+
+.physical-location-card:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.physical-location-card strong {
+    font-size: 1.08rem;
+    overflow-wrap: anywhere;
+}
+
+.physical-location-action {
+    color: #a7e3ae;
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.physical-location-type,
+.physical-location-metadata,
+.physical-location-metadata span {
+    color: var(--color-text-muted);
+    font-size: 0.84rem;
+}
+
+.physical-location-metadata {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+}
+
+.physical-hierarchy-direct-items {
+    display: grid;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+}
+
+.physical-hierarchy-direct-items h4,
+.physical-hierarchy-direct-items p,
+.physical-hierarchy-direct-items button {
+    margin: 0;
+}
+
+.physical-hierarchy-direct-items button {
+    min-height: 48px;
+}
+
+.physical-hierarchy-empty {
+    margin: 0;
+    padding: var(--space-4);
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+}
+
 .pilot-operational-actions {
     display: grid;
     gap: var(--space-2);

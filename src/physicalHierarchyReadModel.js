@@ -152,7 +152,8 @@ function buildDerivedNode(node, path, depth, context) {
         buildDerivedNode(childNode, currentPath, depth + 1, context)
     ));
     const directLinks = context.linksByLocationId.get(node.id) || [];
-    const openSession = context.sessionsByLocationId.get(node.id)?.[0] || null;
+    const openSessions = context.sessionsByLocationId.get(node.id) || [];
+    const openSession = openSessions[0] || null;
 
     return {
         id: node.id,
@@ -172,6 +173,7 @@ function buildDerivedNode(node, path, depth, context) {
         hasChildren: directChildren.length > 0,
         hasDirectItems: directLinks.length > 0,
         openSession,
+        openSessionCount: openSessions.length,
         operationalState: resolveOperationalState(directChildren, directLinks, openSession)
     };
 }

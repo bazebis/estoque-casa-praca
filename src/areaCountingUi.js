@@ -28,39 +28,6 @@ const shortDateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
     timeStyle: "short"
 });
 
-function renderOverviewGuidance(overview) {
-    if (!overview.hasTemplate) {
-        return "Importe um template e execute Configurações → Piloto rápido para liberar as áreas.";
-    }
-    if (overview.configuredAreaCount === 0) {
-        return "Nenhuma área macro está configurada. Execute Configurações → Piloto rápido.";
-    }
-    if (overview.availableAreaCount === 0) {
-        return "As áreas ainda não possuem vínculos ativos. Revise Configurações → Piloto rápido.";
-    }
-    return "Escolha uma área para continuar uma contagem ou iniciar um novo rascunho.";
-}
-
-function renderAreaCard(area) {
-    const sessionWarning = area.openSessionCount > 1
-        ? `<span class="pilot-area-warning">${area.openSessionCount} sessões abertas; a mais recente será usada.</span>`
-        : "";
-    return `
-        <button type="button" class="pilot-area-card" data-area-location-id="${escapeHtml(area.location.id)}" ${area.available ? "" : "disabled"}>
-            <strong>${escapeHtml(area.name)}</strong>
-            <span>${area.itemCount} item(ns)</span>
-            <span>${area.progress.countedItems} de ${area.progress.totalItems} com entrada</span>
-            <span class="pilot-area-status">${escapeHtml(area.status)}</span>
-            ${sessionWarning}
-        </button>
-    `;
-}
-
-export function renderAreaCountingOverview(overview) {
-    getElement("pilot-area-guidance").textContent = renderOverviewGuidance(overview);
-    getElement("pilot-area-list").innerHTML = overview.areas.map(renderAreaCard).join("");
-}
-
 function renderEntryConversion(conversion) {
     if (!conversion?.isConvertible) {
         return `<span class="area-count-conversion-warning">${escapeHtml(conversion?.reason || "Conversão indisponível.")}</span>`;
@@ -295,7 +262,9 @@ export function renderAreaCountingView(viewModel, multipleSessionCount = 0) {
         : -1;
     currentItemIndex = preservedIndex >= 0 ? preservedIndex : 0;
 
-    getElement("area-counting-title").textContent = session.reportAreaSnapshot || session.locationPathSnapshot.at(-1);
+    getElement("area-counting-title").textContent = session.locationPathSnapshot.join(" / ")
+        || session.reportAreaSnapshot
+        || "Local de contagem";
     getElement("area-counting-template").textContent = session.templateNameSnapshot;
     getElement("area-counting-status").textContent = formatSessionStatus(session.status);
     getElement("area-counting-progress-text").textContent = `${progress.countedItems} de ${progress.totalItems} itens com entrada`;
@@ -310,7 +279,8 @@ export function renderAreaCountingView(viewModel, multipleSessionCount = 0) {
     renderSearchResults(getElement("area-counting-search").value);
 }
 
-export function showAreaCountingView() {
+export function showAreaCountingView(backLabel = "Voltar para locais") {
+    getElement("btn-close-area-counting").textContent = backLabel;
     getElement("pilot-dashboard").hidden = true;
     getElement("area-counting-view").hidden = false;
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -348,10 +318,6 @@ function getEntryFormValues(form) {
 }
 
 export function connectAreaCountingEvents(handlers) {
-    getElement("pilot-area-list").addEventListener("click", (event) => {
-        const button = event.target.closest("[data-area-location-id]");
-        if (button && !button.disabled) handlers.onOpenArea(button.dataset.areaLocationId);
-    });
     getElement("btn-close-area-counting").addEventListener("click", handlers.onCloseArea);
     getElement("btn-previous-area-item").addEventListener("click", () => goToItem(currentItemIndex - 1));
     getElement("btn-next-area-item").addEventListener("click", () => goToItem(currentItemIndex + 1));

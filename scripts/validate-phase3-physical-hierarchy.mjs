@@ -321,4 +321,32 @@ runTest("vínculo e sessão de outro template são ignorados", () => {
     assert.equal(root.openSession, null);
 });
 
+runTest("múltiplos directLinks respeitam order, nome e ID", () => {
+    const nodes = [createNode("root", "Cozinha")];
+    const links = [
+        createLink("link-z", "root", "Z", { order: 2, itemNameSnapshot: "Zulu" }),
+        createLink("link-b", "root", "B", { order: 1, itemNameSnapshot: "Mesmo nome" }),
+        createLink("link-a", "root", "A", { order: 1, itemNameSnapshot: "Mesmo nome" })
+    ];
+    const hierarchy = buildHierarchy({ nodes, links });
+    assert.deepEqual(
+        getOperationalNode(hierarchy, "root").directLinks.map((link) => link.id),
+        ["link-a", "link-b", "link-z"]
+    );
+});
+
+runTest("descendantCount conta todos os descendentes navegáveis", () => {
+    const nodes = [
+        createNode("root", "Cozinha"),
+        createNode("first", "Geladeira", { parentId: "root" }),
+        createNode("second", "Freezer", { parentId: "root" }),
+        createNode("grandchild", "Porta", { parentId: "first" }),
+        createNode("hidden", "Cesto inativo", { parentId: "second", active: false })
+    ];
+    const hierarchy = buildHierarchy({ nodes });
+    assert.equal(getOperationalNode(hierarchy, "root").descendantCount, 3);
+    assert.equal(getOperationalNode(hierarchy, "first").descendantCount, 1);
+    assert.equal(getOperationalNode(hierarchy, "second").descendantCount, 0);
+});
+
 console.log(`PASS validate-phase3-physical-hierarchy (${executedTestCount} casos)`);

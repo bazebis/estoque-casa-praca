@@ -23,8 +23,8 @@
 
     <main id="pilot-dashboard" class="pilot-dashboard" aria-labelledby="pilot-dashboard-title">
         <p class="pilot-badge">Fase piloto</p>
-        <h2 id="pilot-dashboard-title">Contagem por áreas</h2>
-        <p class="pilot-dashboard-description">Escolha uma área macro para registrar a contagem simples deste aparelho.</p>
+        <h2 id="pilot-dashboard-title">Contagem por locais</h2>
+        <p class="pilot-dashboard-description">Navegue pela estrutura física e conte os itens do local exato.</p>
         <dl class="pilot-status-summary" aria-label="Status do piloto">
             <div><dt>Template importado</dt><dd id="pilot-status-template">Verificando…</dd></div>
             <div><dt>Áreas macro configuradas</dt><dd id="pilot-status-areas">Verificando…</dd></div>
@@ -32,9 +32,18 @@
             <div><dt>WhatsApp de envio</dt><dd id="pilot-status-whatsapp">Verificando…</dd></div>
         </dl>
         <section class="pilot-area-panel" aria-labelledby="pilot-area-title">
-            <h3 id="pilot-area-title">Áreas para contar</h3>
-            <p id="pilot-area-guidance" class="pilot-area-guidance">Verificando áreas configuradas…</p>
+            <div class="physical-hierarchy-header">
+                <button type="button" id="btn-back-physical-hierarchy" hidden>Voltar</button>
+                <p id="physical-hierarchy-breadcrumb" class="physical-hierarchy-breadcrumb" hidden></p>
+            </div>
+            <h3 id="pilot-area-title">Locais para contar</h3>
+            <p id="pilot-area-guidance" class="pilot-area-guidance">Verificando locais configurados…</p>
             <div id="pilot-area-list" class="pilot-area-list"></div>
+            <section id="physical-hierarchy-direct-items" class="physical-hierarchy-direct-items" hidden>
+                <h4>Itens deste local</h4>
+                <p id="physical-hierarchy-direct-count"></p>
+                <button type="button" id="btn-count-physical-location">Iniciar contagem deste local</button>
+            </section>
         </section>
         <div class="pilot-operational-actions">
             <button type="button" id="btn-open-count-consolidation" class="pilot-consolidation-button">Prévia da consolidação</button>
@@ -48,7 +57,7 @@
 
     <section id="area-counting-view" class="area-counting-view" hidden aria-labelledby="area-counting-title">
         <div class="area-counting-topbar">
-            <button type="button" id="btn-close-area-counting">Voltar para áreas</button>
+            <button type="button" id="btn-close-area-counting">Voltar para locais</button>
             <span id="area-counting-status" class="area-counting-status"></span>
         </div>
         <p class="pilot-badge">Contagem simples</p>

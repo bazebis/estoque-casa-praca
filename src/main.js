@@ -1,13 +1,8 @@
 import "./styles.css";
-import {
-    buildAreaCountingOverview,
-    buildAreaCountingViewModel,
-    listOpenAreaSessions
-} from "./areaCounting.js";
+import { buildAreaCountingViewModel } from "./areaCounting.js";
 import {
     connectAreaCountingEvents,
     hideAreaCountingView,
-    renderAreaCountingOverview,
     renderAreaCountingView,
     showAreaCountingFeedback,
     showAreaCountingView
@@ -106,6 +101,16 @@ import {
     renderLocationNodes,
     showLocationNodesFeedback
 } from "./locationNodesUi.js";
+import {
+    buildOperationalHierarchy,
+    getOperationalNode
+} from "./physicalHierarchyReadModel.js";
+import {
+    connectPhysicalHierarchyEvents,
+    getCountingReturnNodeId,
+    renderPhysicalHierarchyNavigation,
+    resolvePhysicalHierarchyCountingMode
+} from "./physicalHierarchyUi.js";
 import { registerPwa } from "./pwa.js";
 import {
     buildQuickPilotLinkCandidates,
@@ -250,6 +255,10 @@ function loadSnapshotXlsxExport() {
 let activeSnapshotWhatsappSettings = normalizeWhatsappSettings();
 let activeAreaCountSessionId = null;
 let activeAreaOpenSessionCount = 0;
+let activeAreaReturnNodeId = null;
+let activeOperationalHierarchy = null;
+let activeHierarchyNavigationView = null;
+let activeHierarchyNodeId = null;
 let selectedLinkItemCode = null;
 let itemLinksLocationFilter = "";
 let itemLinksItemFilter = "";
@@ -649,22 +658,67 @@ async function loadQuickPilotContext() {
     };
 }
 
-async function refreshPilotDashboard() {
+async function loadOperationalHierarchyContext(requestedTemplateId = null) {
+    const [templates, locations, links, sessions] = await Promise.all([
+        listCountTemplates(),
+        listLocationNodes(),
+        listItemLocationLinks(),
+        listLocationCountSessions()
+    ]);
+    const selectedTemplate = requestedTemplateId
+        ? templates.find((template) => template.id === requestedTemplateId) || null
+        : templates.find((template) => template.id === selectedQuickPilotTemplateId) || templates[0] || null;
+
+    if (!requestedTemplateId) {
+        selectedQuickPilotTemplateId = selectedTemplate?.id || null;
+    }
+
+    const hierarchy = buildOperationalHierarchy({
+        nodes: locations,
+        links,
+        sessions,
+        templateId: selectedTemplate?.id || ""
+    });
+    return { templates, locations, links, sessions, selectedTemplate, hierarchy };
+}
+
+function reconcileHierarchySelection(hierarchy) {
+    if (!activeHierarchyNodeId || getOperationalNode(hierarchy, activeHierarchyNodeId)) {
+        return "";
+    }
+
+    activeHierarchyNodeId = null;
+    return "O local selecionado não está mais disponível. A navegação voltou ao início.";
+}
+
+async function refreshPilotDashboard(message = "") {
     try {
-        const [{ plan }, whatsappSettings, sessions, entries] = await Promise.all([
-            loadQuickPilotContext(),
-            loadWhatsappSettings(),
-            listLocationCountSessions(),
-            listLocationCountEntries()
+        const [context, whatsappSettings] = await Promise.all([
+            loadOperationalHierarchyContext(),
+            loadWhatsappSettings()
         ]);
+        const plan = buildQuickPilotPlan(context.selectedTemplate, context.locations, context.links);
+        activeOperationalHierarchy = context.hierarchy;
+        const selectionMessage = reconcileHierarchySelection(context.hierarchy);
         renderPilotDashboardStatus(
             summarizeQuickPilotStatus(plan),
             isWhatsappConfigured(whatsappSettings)
         );
-        renderAreaCountingOverview(buildAreaCountingOverview(plan, sessions, entries));
+        activeHierarchyNavigationView = renderPhysicalHierarchyNavigation({
+            hierarchy: context.hierarchy,
+            selectedNodeId: activeHierarchyNodeId,
+            templateName: context.selectedTemplate?.name || "",
+            message: message || selectionMessage
+        });
     } catch {
+        activeOperationalHierarchy = null;
+        activeHierarchyNavigationView = null;
+        activeHierarchyNodeId = null;
         renderPilotDashboardStatus(summarizeQuickPilotStatus(null), false);
-        renderAreaCountingOverview(buildAreaCountingOverview(null));
+        renderPhysicalHierarchyNavigation({
+            hierarchy: buildOperationalHierarchy(),
+            message: "Não foi possível carregar os locais operacionais."
+        });
     }
 }
 
@@ -1024,32 +1078,76 @@ async function refreshAreaCountingView() {
     return session;
 }
 
-async function openAreaCounting(locationId) {
+async function selectPhysicalHierarchyNode(locationId) {
+    const node = getOperationalNode(activeOperationalHierarchy, locationId);
+    if (!node) {
+        await refreshPilotDashboard("Este local não está disponível para navegação.");
+        return;
+    }
+
+    activeHierarchyNodeId = node.id;
+    await refreshPilotDashboard();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function backPhysicalHierarchy() {
+    const selectedNode = getOperationalNode(activeOperationalHierarchy, activeHierarchyNodeId);
+    activeHierarchyNodeId = selectedNode?.parentId || null;
+    await refreshPilotDashboard();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function openLocationCounting(locationId) {
     try {
-        const [{ plan }, sessions] = await Promise.all([loadQuickPilotContext(), listLocationCountSessions()]);
-        const area = plan?.areas.find((item) => (
-            item.locationPlan.location.id === locationId && item.locationPlan.action === "reuse"
-        ));
-        if (!area) throw new Error("Esta área não está pronta para contar.");
-        const openSessions = listOpenAreaSessions(sessions, plan.templateId, locationId);
-        if (openSessions.length === 0 && area.activeExistingLinkCount === 0) {
-            throw new Error("Esta área não possui itens vinculados ativos para criar uma sessão.");
+        const context = await loadOperationalHierarchyContext();
+        const node = getOperationalNode(context.hierarchy, locationId);
+        if (!context.selectedTemplate) throw new Error("Nenhum template está disponível para contagem.");
+        if (!node) throw new Error("Este local não está operacionalmente disponível.");
+        const countingMode = resolvePhysicalHierarchyCountingMode(node);
+        if (countingMode === "blocked") {
+            throw new Error("Este local não possui itens vinculados diretamente para criar uma sessão.");
         }
-        const session = openSessions[0] || await createLocationCountSessionDraft({
-            templateId: plan.templateId,
-            locationId,
-            notes: "Criada pela contagem simples por área."
-        });
+
+        const returnNodeId = getCountingReturnNodeId(activeHierarchyNavigationView);
+        const returnNode = getOperationalNode(context.hierarchy, returnNodeId);
+        const session = countingMode === "resume"
+            ? node.openSession
+            : await createLocationCountSessionDraft({
+                templateId: context.selectedTemplate.id,
+                locationId,
+                notes: "Criada pela navegação de locais físicos."
+            });
 
         activeAreaCountSessionId = session.id;
-        activeAreaOpenSessionCount = Math.max(openSessions.length, 1);
+        activeAreaOpenSessionCount = Math.max(node.openSessionCount, 1);
+        activeAreaReturnNodeId = returnNode?.id || null;
         await refreshAreaCountingView();
-        showAreaCountingFeedback(openSessions.length ? "Sessão aberta novamente." : "Rascunho criado para esta área.", "success");
-        showAreaCountingView();
+        showAreaCountingFeedback(
+            countingMode === "resume" ? "Sessão aberta novamente." : "Rascunho criado para este local.",
+            "success"
+        );
+        showAreaCountingView(returnNode ? `Voltar para ${returnNode.name}` : "Voltar para locais");
         await refreshPilotDashboard();
     } catch (error) {
-        window.alert(error.message || "Não foi possível abrir a contagem desta área.");
+        activeAreaCountSessionId = null;
+        activeAreaOpenSessionCount = 0;
+        activeAreaReturnNodeId = null;
+        window.alert(error.message || "Não foi possível abrir a contagem deste local.");
     }
+}
+
+async function isCountingSessionLocationOperational(session) {
+    const context = await loadOperationalHierarchyContext(session?.templateId);
+    return Boolean(getOperationalNode(context.hierarchy, session?.locationId));
+}
+
+async function returnToSafeHierarchy(message) {
+    activeAreaCountSessionId = null;
+    activeAreaOpenSessionCount = 0;
+    activeAreaReturnNodeId = null;
+    activeHierarchyNodeId = null;
+    hideAreaCountingView();
+    await refreshPilotDashboard(message);
 }
 
 async function addAreaCountEntry(values) {
@@ -1059,6 +1157,10 @@ async function addAreaCountEntry(values) {
             item.itemCode === values.itemCode && item.linkId === values.linkId
         ));
         if (!session || !plannedItem) throw new Error("Item planejado não encontrado nesta sessão.");
+        if (!await isCountingSessionLocationOperational(session)) {
+            await returnToSafeHierarchy("Este local deixou de estar disponível. Nenhuma entrada foi adicionada.");
+            return;
+        }
 
         await addLocationCountEntry({ session, plannedItem, ...values });
         session = session.status === "draft"
@@ -1077,6 +1179,10 @@ async function removeAreaCountEntry(entryId) {
         const removedEntry = await removeLocationCountEntry(entryId);
         const session = await getLocationCountSession(removedEntry.sessionId);
         if (session?.status === "in_progress") await saveLocationCountSession(session);
+        if (session && !await isCountingSessionLocationOperational(session)) {
+            await returnToSafeHierarchy("A entrada foi removida, mas o local não está mais disponível para contagem.");
+            return;
+        }
         await refreshAreaCountingView();
         await refreshPilotDashboard();
         showAreaCountingFeedback("Entrada removida. O registro foi preservado como inativo.", "success");
@@ -1086,9 +1192,12 @@ async function removeAreaCountEntry(entryId) {
 }
 
 async function closeAreaCounting() {
+    const returnNodeId = activeAreaReturnNodeId;
     activeAreaCountSessionId = null;
     activeAreaOpenSessionCount = 0;
+    activeAreaReturnNodeId = null;
     hideAreaCountingView();
+    activeHierarchyNodeId = returnNodeId;
     await refreshPilotDashboard();
 }
 
@@ -2105,8 +2214,12 @@ connectWhatsappSettingsEvents({
     onSave: updateWhatsappSettings,
     onClear: removeWhatsappSettings
 });
+connectPhysicalHierarchyEvents({
+    onSelectNode: selectPhysicalHierarchyNode,
+    onOpenCounting: openLocationCounting,
+    onBack: backPhysicalHierarchy
+});
 connectAreaCountingEvents({
-    onOpenArea: openAreaCounting,
     onCloseArea: closeAreaCounting,
     onAddEntry: addAreaCountEntry,
     onRemoveEntry: removeAreaCountEntry
