@@ -95,6 +95,38 @@ export function findAllowedUnit(profile, rawUnitOrNormalizedUnit) {
     return allowedUnits.find((unit) => normalizeUnitAlias(unit.normalizedUnit) === normalizedUnit) || null;
 }
 
+function findUniqueAllowedUnitAlias(profile, rawUnit) {
+    const normalizedRequestedUnit = normalizeUnitAlias(rawUnit);
+    const matches = (profile?.allowedUnits || []).filter((unit) => (
+        normalizeUnitAlias(unit.label) === normalizedRequestedUnit
+        || normalizeUnitAlias(unit.normalizedUnit) === normalizedRequestedUnit
+        || (unit.legacyLabels || []).some((label) => normalizeUnitAlias(label) === normalizedRequestedUnit)
+    ));
+    return matches.length === 1 ? matches[0] : null;
+}
+
+export function resolveAllowedUnitForNewEntry(profile, rawUnit) {
+    const requestedUnit = normalizeText(rawUnit);
+    if (!requestedUnit) {
+        return { isValid: false, error: "Selecione uma unidade permitida.", allowedUnit: null };
+    }
+
+    const exactUnit = (profile?.allowedUnits || []).find((unit) => (
+        normalizeLabel(unit.label) === normalizeLabel(requestedUnit)
+    ));
+    const allowedUnit = exactUnit || findUniqueAllowedUnitAlias(profile, requestedUnit);
+    if (!allowedUnit) {
+        return { isValid: false, error: "A unidade selecionada não pertence ao perfil deste item.", allowedUnit: null };
+    }
+
+    const conversion = convertQuantityToBase("1", allowedUnit, profile);
+    if (!conversion.isConvertible) {
+        return { isValid: false, error: "A unidade selecionada não possui conversão determinística.", allowedUnit: null };
+    }
+
+    return { isValid: true, error: "", allowedUnit };
+}
+
 function getPortionWeight(profile) {
     return (profile?.allowedUnits || []).find((unit) => unit.portionWeightGrams)?.portionWeightGrams || null;
 }

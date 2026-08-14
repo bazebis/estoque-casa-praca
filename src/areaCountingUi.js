@@ -1,7 +1,9 @@
 import {
+    findAllowedUnit,
     formatConvertedQuantity,
     formatPortionBreakdown
 } from "./unitConversion.js";
+import { validateControlledItemUnitProfile } from "./itemUnitSettings.js";
 
 function getElement(id) {
     return document.getElementById(id);
@@ -123,34 +125,48 @@ function formatUnitHint(profile) {
     return `<p class="area-count-unit-hint">Base de conversão: <strong>${escapeHtml(profile.baseUnit)}</strong>${review}.</p>`;
 }
 
-function renderAllowedUnitOptions(profile) {
+export function resolveAreaCountingInputUnit(profile, lastUsedUnit = "") {
+    const profileValidation = validateControlledItemUnitProfile(profile);
+    if (!profileValidation.isValid) return null;
+
+    return findAllowedUnit(profileValidation.profile, lastUsedUnit)
+        || findAllowedUnit(profileValidation.profile, profileValidation.profile.defaultInputUnit);
+}
+
+function renderAllowedUnitOptions(profile, selectedUnit) {
     return profile.allowedUnits.map((unit) => {
-        const review = unit.requiresReview ? " (revisar)" : "";
-        const selected = unit.label === profile.defaultInputUnit ? "selected" : "";
-        return `<option value="${escapeHtml(unit.label)}" ${selected}>${escapeHtml(unit.label)}${review}</option>`;
+        const selected = unit.id === selectedUnit.id ? "selected" : "";
+        return `<option value="${escapeHtml(unit.label)}" ${selected}>${escapeHtml(unit.label)}</option>`;
     }).join("");
 }
 
 function renderUnitField(profile, lastUsedUnit) {
-    if (!profile?.allowedUnits.length) {
-        const initialUnit = profile?.effectiveUnit || lastUsedUnit;
-        return `
-            <label>Unidade livre
-                <input type="text" name="unit" maxlength="60" autocomplete="off" value="${escapeHtml(initialUnit)}" placeholder="Ex.: un, kg, caixa">
-            </label>
-        `;
-    }
+    const selectedUnit = resolveAreaCountingInputUnit(profile, lastUsedUnit);
+    if (!selectedUnit) return null;
+
     return `
         <label>Unidade permitida
             <select name="unit" data-profile-unit-select>
-                ${renderAllowedUnitOptions(profile)}
-                <option value="__other__">Outra unidade</option>
+                ${renderAllowedUnitOptions(profile, selectedUnit)}
             </select>
         </label>
-        <label data-custom-unit-field hidden>Outra unidade
-            <input type="text" name="customUnit" maxlength="60" autocomplete="off" placeholder="Digite a unidade">
-        </label>
-        <p class="area-count-other-unit-warning" data-custom-unit-warning hidden>Unidade fora do perfil; revise esta entrada futuramente.</p>
+    `;
+}
+
+function renderEntryForm(item, profile, lastUsedUnit) {
+    const unitField = renderUnitField(profile, lastUsedUnit);
+    if (!unitField) {
+        return '<p class="area-counting-warning">Corrija o perfil de unidade deste item antes de lançar uma quantidade.</p>';
+    }
+
+    return `
+        <form class="area-count-entry-form" data-item-code="${escapeHtml(item.itemCode)}" data-link-id="${escapeHtml(item.linkId)}">
+            <label>Quantidade
+                <input type="text" name="quantity" inputmode="decimal" required maxlength="80" autocomplete="off" placeholder="Ex.: 1,5">
+            </label>
+            ${unitField}
+            <button type="submit">Adicionar entrada</button>
+        </form>
     `;
 }
 
@@ -179,13 +195,7 @@ function renderItemCard(item, summary, convertedSummary, lastUsedUnit, unitSetti
         )).join("")}</ul>`
         : '<p class="area-count-empty-entries">Nenhuma aferição registrada. Você pode pular este item.</p>'}
             </section>
-            <form class="area-count-entry-form" data-item-code="${escapeHtml(item.itemCode)}" data-link-id="${escapeHtml(item.linkId)}">
-                <label>Quantidade
-                    <input type="text" name="quantity" inputmode="decimal" required maxlength="80" autocomplete="off" placeholder="Ex.: 1,5">
-                </label>
-                ${renderUnitField(unitSetting, lastUsedUnit)}
-                <button type="submit">Adicionar entrada</button>
-            </form>
+            ${renderEntryForm(item, unitSetting, lastUsedUnit)}
         </article>
     `;
 }
@@ -328,26 +338,13 @@ function goToItem(itemIndex) {
 }
 
 function getEntryFormValues(form) {
-    const selectedUnit = form.elements.unit.value;
-    const rawUnit = selectedUnit === "__other__" ? form.elements.customUnit.value : selectedUnit;
     return {
         itemCode: form.dataset.itemCode,
         linkId: form.dataset.linkId,
         rawQuantityText: form.elements.quantity.value,
-        rawUnit,
+        rawUnit: form.elements.unit.value,
         notes: ""
     };
-}
-
-function toggleCustomUnitField(select) {
-    const form = select.closest("form");
-    const shouldShowCustomUnit = select.value === "__other__";
-    const customField = form.querySelector("[data-custom-unit-field]");
-    const customInput = form.elements.customUnit;
-    customField.hidden = !shouldShowCustomUnit;
-    form.querySelector("[data-custom-unit-warning]").hidden = !shouldShowCustomUnit;
-    customInput.required = shouldShowCustomUnit;
-    if (shouldShowCustomUnit) customInput.focus();
 }
 
 export function connectAreaCountingEvents(handlers) {
@@ -368,10 +365,6 @@ export function connectAreaCountingEvents(handlers) {
         if (!form) return;
         event.preventDefault();
         await handlers.onAddEntry(getEntryFormValues(form));
-    });
-    getElement("area-counting-items").addEventListener("change", (event) => {
-        const select = event.target.closest("[data-profile-unit-select]");
-        if (select) toggleCustomUnitField(select);
     });
     getElement("area-counting-items").addEventListener("click", async (event) => {
         const button = event.target.closest("[data-remove-area-entry]");

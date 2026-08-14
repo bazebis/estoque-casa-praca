@@ -12,6 +12,7 @@ import {
     inferUnitForTemplateItem,
     normalizeItemUnitSettings,
     validateAssistedUnitSuggestion,
+    validateControlledItemUnitProfile,
     validateItemUnitSetting
 } from "./itemUnitSettings.js";
 import {
@@ -37,6 +38,7 @@ import {
     normalizeLocationCountEntries,
     validateLocationCountEntry
 } from "./locationCountEntries.js";
+import { resolveAllowedUnitForNewEntry } from "./unitConversion.js";
 import { normalizeWhatsappSettings, validateWhatsappSettings } from "./whatsappSettings.js";
 import {
     markConsolidationSnapshotFinalized,
@@ -1815,7 +1817,35 @@ function validateEntrySource(entry, session) {
     }
 }
 
-export async function saveLocationCountEntry(entry) {
+async function applyControlledUnitToActiveEntry(entry) {
+    if (!entry.active) return entry;
+
+    const explicitSetting = await getItemUnitSetting(entry.templateId, entry.itemCode);
+    if (!explicitSetting) {
+        throw new Error("Este item não possui um perfil explícito de unidades. Corrija o perfil antes de lançar.");
+    }
+
+    const profileValidation = validateControlledItemUnitProfile(explicitSetting);
+    if (!profileValidation.isValid) {
+        throw new Error("O perfil de unidades deste item precisa ser corrigido antes da contagem.");
+    }
+
+    const unitValidation = resolveAllowedUnitForNewEntry(profileValidation.profile, entry.rawUnit);
+    if (!unitValidation.isValid) throw new Error(unitValidation.error);
+
+    const canonicalValidation = validateLocationCountEntry({
+        ...entry,
+        rawUnit: unitValidation.allowedUnit.label
+    });
+    if (!canonicalValidation.isValid) {
+        throw new Error(canonicalValidation.error || "A entrada canônica de contagem é inválida.");
+    }
+
+    // Revalidar evita persistir normalizedUnit calculada a partir de um alias anterior.
+    return canonicalValidation.entry;
+}
+
+async function saveLocationCountEntrySerialized(entry) {
     const [entries, session] = await Promise.all([
         listLocationCountEntries(),
         getLocationCountSession(entry?.sessionId)
@@ -1831,12 +1861,18 @@ export async function saveLocationCountEntry(entry) {
 
     if (!validation.isValid) throw new Error(validation.error || "Entrada de contagem inválida.");
     validateEntrySource(validation.entry, session);
+    const controlledEntry = await applyControlledUnitToActiveEntry(validation.entry);
     await runWithFallback(
-        () => putInStore(storeNames.locationCountEntries, validation.entry),
-        () => saveLocalLocationCountEntry(validation.entry)
+        () => putInStore(storeNames.locationCountEntries, controlledEntry),
+        () => saveLocalLocationCountEntry(controlledEntry)
     );
-    saveLocalLocationCountEntry(validation.entry);
-    return validation.entry;
+    saveLocalLocationCountEntry(controlledEntry);
+    return controlledEntry;
+}
+
+export async function saveLocationCountEntry(entry) {
+    // A mesma fila fecha a corrida entre criar uma entrada e remover ou alterar seu perfil explícito.
+    return serializeItemUnitSettingsMutation(() => saveLocationCountEntrySerialized(entry));
 }
 
 export async function addLocationCountEntry({ session, plannedItem, rawQuantityText, rawUnit = "", notes = "" }) {

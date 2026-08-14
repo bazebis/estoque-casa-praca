@@ -1015,7 +1015,8 @@ async function refreshAreaCountingView() {
         getCountTemplate(session.templateId),
         listItemUnitSettings()
     ]);
-    const unitSettings = resolveItemUnitSettings(template, savedUnitSettings, entries);
+    // A contagem operacional usa somente a autoridade explícita persistida; inferência não autoriza escrita.
+    const unitSettings = savedUnitSettings.filter((setting) => setting.templateId === session.templateId);
     renderAreaCountingView(
         buildAreaCountingViewModel(session, entries, unitSettings),
         activeAreaOpenSessionCount
@@ -1065,10 +1066,7 @@ async function addAreaCountEntry(values) {
             : await saveLocationCountSession(session);
         await refreshAreaCountingView();
         await refreshPilotDashboard();
-        showAreaCountingFeedback(
-            values.rawUnit.trim() ? "Entrada adicionada." : "Entrada adicionada sem unidade; confira antes de uma exportação futura.",
-            values.rawUnit.trim() ? "success" : "warning"
-        );
+        showAreaCountingFeedback("Entrada adicionada.", "success");
     } catch (error) {
         showAreaCountingFeedback(error.message || "Não foi possível adicionar a entrada.", "error");
     }

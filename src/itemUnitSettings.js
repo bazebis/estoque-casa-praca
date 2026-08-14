@@ -392,6 +392,16 @@ export function validateAssistedUnitSuggestion(setting) {
     return { isEligible: true, error: "", setting: normalizedSetting };
 }
 
+export function validateControlledItemUnitProfile(setting) {
+    const validation = validateAssistedUnitSuggestion(setting);
+
+    return {
+        isValid: validation.isEligible,
+        error: validation.error,
+        profile: validation.setting
+    };
+}
+
 function listTemplateItemCodes(template) {
     return (template?.groups || []).flatMap((group) => (group.items || []).map((item) => normalizeText(item.code)));
 }
