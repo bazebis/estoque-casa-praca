@@ -9,6 +9,7 @@ let finalReportDate = null;
 let finalReportCount = null;
 let configModalReturnFocus = null;
 let bodyOverflowBeforeConfigModal = "";
+let currentAdminGroup = null;
 
 const adminSections = {
     catalog: "admin-section-catalog",
@@ -26,6 +27,24 @@ const adminSections = {
     history: "admin-section-history",
     backup: "admin-section-backup",
     about: "admin-section-about"
+};
+
+const adminSectionGroups = {
+    catalog: "primary",
+    "catalog-import": "primary",
+    units: "primary",
+    "quick-pilot": "primary",
+    templates: "primary",
+    "item-unit-settings": "primary",
+    "whatsapp-settings": "primary",
+    locations: "structure",
+    preparation: "structure",
+    "item-locations": "structure",
+    "location-item-map": "structure",
+    "location-count-sessions": "structure",
+    history: "structure",
+    backup: "security",
+    about: "security"
 };
 
 function getElement(id) {
@@ -48,30 +67,73 @@ function isConfigModalOpen() {
     return getElement("configModal").style.display === "block";
 }
 
-function focusCurrentAdminView(sectionName) {
+function resetAdminModalScroll() {
+    getElement("configModal").scrollTop = 0;
+    getElement("configModal").querySelector(".admin-content").scrollTop = 0;
+}
+
+function focusCurrentAdminView({ groupName = null, sectionName = null } = {}) {
     if (!isConfigModalOpen()) return;
-    const target = sectionName === "menu"
-        ? getElement("admin-menu").querySelector(".admin-menu-button:not(.pilot-hidden)")
-        : getElement(adminSections[sectionName])?.querySelector(".admin-back-button, button, input, select");
+    const groupPanel = groupName
+        ? document.querySelector(`[data-admin-group-panel="${groupName}"]`)
+        : null;
+    const target = sectionName
+        ? getElement(adminSections[sectionName])?.querySelector(".admin-back-button, button, input, select")
+        : groupPanel?.querySelector(".admin-menu-button:not(.pilot-hidden)")
+            || getElement("admin-menu-root").querySelector(".admin-menu-group-button");
     (target || getElement("btn-fechar-config")).focus();
 }
 
-function showAdminSection(sectionName) {
-    const menu = getElement("admin-menu");
-    const shouldShowMenu = !sectionName || sectionName === "menu";
-
-    menu.hidden = !shouldShowMenu;
-
-    Object.entries(adminSections).forEach(([name, sectionId]) => {
-        getElement(sectionId).hidden = shouldShowMenu || name !== sectionName;
+function hideAdminSections() {
+    Object.values(adminSections).forEach((sectionId) => {
+        getElement(sectionId).hidden = true;
     });
-    getElement("configModal").scrollTop = 0;
-    focusCurrentAdminView(shouldShowMenu ? "menu" : sectionName);
+}
+
+function showAdminGroup(groupName) {
+    const menu = getElement("admin-menu");
+    const root = getElement("admin-menu-root");
+    const selectedPanel = document.querySelector(`[data-admin-group-panel="${groupName}"]`);
+    if (!selectedPanel) return;
+
+    currentAdminGroup = groupName;
+    menu.hidden = false;
+    root.hidden = true;
+    document.querySelectorAll("[data-admin-group-panel]").forEach((panel) => {
+        panel.hidden = panel !== selectedPanel;
+    });
+    hideAdminSections();
+    resetAdminModalScroll();
+    focusCurrentAdminView({ groupName });
+}
+
+function showAdminSection(sectionName) {
+    const groupName = adminSectionGroups[sectionName];
+    if (groupName) currentAdminGroup = groupName;
+
+    getElement("admin-menu").hidden = true;
+    Object.entries(adminSections).forEach(([name, sectionId]) => {
+        getElement(sectionId).hidden = name !== sectionName;
+    });
+    resetAdminModalScroll();
+    focusCurrentAdminView({ sectionName });
+}
+
+function showAdminRootMenu() {
+    currentAdminGroup = null;
+    getElement("admin-menu").hidden = false;
+    getElement("admin-menu-root").hidden = false;
+    document.querySelectorAll("[data-admin-group-panel]").forEach((panel) => {
+        panel.hidden = true;
+    });
+    hideAdminSections();
+    resetAdminModalScroll();
+    focusCurrentAdminView();
 }
 
 export function showAdminMenu() {
     hideHistoryView();
-    showAdminSection("menu");
+    showAdminRootMenu();
 }
 
 export function showCountTemplatesAdminSection() {
@@ -1170,6 +1232,10 @@ export function openConfigModal(items, handlers, unitHandlers, initialSection = 
     openModal("configModal");
     updateConfigList(items, handlers);
     renderUnitsList(unitHandlers.getUnits(), unitHandlers);
+    if (!initialSection || initialSection === "menu") {
+        showAdminRootMenu();
+        return;
+    }
     showAdminSection(initialSection);
 }
 
@@ -1178,7 +1244,7 @@ export function closeConfigModal() {
     editingItemId = null;
     editingUnitId = null;
     hideHistoryView();
-    showAdminSection("menu");
+    showAdminRootMenu();
     closeModal("configModal");
     document.body.style.overflow = bodyOverflowBeforeConfigModal;
     configModalReturnFocus?.focus?.();
@@ -1271,6 +1337,21 @@ function connectUnitEvents(handlers) {
 
 function connectAdminNavigationEvents(handlers) {
     document.querySelectorAll(".admin-back-button").forEach((button) => {
+        button.addEventListener("click", () => {
+            hideHistoryView();
+            if (currentAdminGroup) {
+                showAdminGroup(currentAdminGroup);
+                return;
+            }
+            showAdminRootMenu();
+        });
+    });
+
+    document.querySelectorAll(".admin-menu-group-button").forEach((button) => {
+        button.addEventListener("click", () => showAdminGroup(button.dataset.adminGroup));
+    });
+
+    document.querySelectorAll(".admin-menu-group-back").forEach((button) => {
         button.addEventListener("click", showAdminMenu);
     });
 

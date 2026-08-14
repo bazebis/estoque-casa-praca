@@ -2547,8 +2547,23 @@ select {
 }
 
 /* admin navigation */
+#configModal {
+    --admin-modal-top-space: max(var(--space-4), env(safe-area-inset-top, 0px));
+    --admin-modal-bottom-space: max(var(--space-4), env(safe-area-inset-bottom, 0px));
+    overflow: hidden;
+    padding-top: var(--admin-modal-top-space);
+    padding-bottom: var(--admin-modal-bottom-space);
+}
+
 .admin-content {
     max-width: 620px;
+    max-height: calc(100dvh - var(--admin-modal-top-space) - var(--admin-modal-bottom-space));
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    isolation: isolate;
 }
 
 .admin-topbar {
@@ -2556,12 +2571,13 @@ select {
     grid-template-columns: 1fr auto;
     gap: var(--space-3);
     align-items: center;
-    margin-bottom: var(--space-4);
     position: sticky;
     top: 0;
-    z-index: 2;
-    padding: var(--space-2) 0;
+    z-index: 10;
+    margin: 0 calc(-1 * var(--space-4)) var(--space-4);
+    padding: var(--space-2) var(--space-4);
     background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
 }
 
 .admin-topbar h2 {
@@ -2580,6 +2596,11 @@ select {
     gap: var(--space-4);
 }
 
+.admin-menu-root {
+    display: grid;
+    gap: var(--space-3);
+}
+
 .admin-menu-group {
     display: grid;
     gap: var(--space-2);
@@ -2595,11 +2616,14 @@ select {
     gap: var(--space-3);
 }
 
+.admin-menu-root[hidden],
+.admin-menu-group[hidden],
 .admin-menu[hidden],
 .admin-section[hidden] {
     display: none;
 }
 
+.admin-menu-group-button,
 .admin-menu-button {
     min-height: 64px;
     padding: var(--space-4);
@@ -2608,8 +2632,15 @@ select {
     text-align: left;
 }
 
+.admin-menu-group-button:hover,
 .admin-menu-button:hover {
     background-color: var(--color-surface-soft);
+}
+
+.admin-menu-group-back {
+    min-height: 44px;
+    margin-top: var(--space-2);
+    background-color: var(--color-secondary);
 }
 
 .admin-menu-primary {

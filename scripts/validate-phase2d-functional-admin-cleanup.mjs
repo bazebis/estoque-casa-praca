@@ -349,6 +349,82 @@ await runTest("UI reflete agrupamento, limpeza, sessões e modal aprovados", asy
     assert.match(sessionUiSource, /Remover permanentemente/);
 });
 
+await runTest("menu raiz possui exatamente três controles interativos de grupo", async () => {
+    const html = fs.readFileSync("index.html", "utf8");
+    const rootStart = html.indexOf('<div id="admin-menu-root"');
+    const rootEnd = html.indexOf("</div>", rootStart);
+    const rootMarkup = html.slice(rootStart, rootEnd);
+    assert.notEqual(rootStart, -1);
+    assert.equal(rootMarkup.match(/class="admin-menu-group-button"/g)?.length, 3);
+    assert.equal(rootMarkup.match(/data-admin-group=/g)?.length, 3);
+    assert.doesNotMatch(rootMarkup, /data-admin-target=/);
+});
+
+await runTest("destinos administrativos permanecem associados aos grupos aprovados", async () => {
+    const html = fs.readFileSync("index.html", "utf8");
+    const primaryPanel = html.slice(html.indexOf('data-admin-group-panel="primary"'), html.indexOf('data-admin-group-panel="structure"'));
+    const structurePanel = html.slice(html.indexOf('data-admin-group-panel="structure"'), html.indexOf('data-admin-group-panel="security"'));
+    const securityPanel = html.slice(html.indexOf('data-admin-group-panel="security"'), html.indexOf("</section>", html.indexOf('data-admin-group-panel="security"')));
+    for (const target of ["quick-pilot", "templates", "item-unit-settings", "whatsapp-settings"]) {
+        assert.match(primaryPanel, new RegExp(`data-admin-target="${target}"`));
+    }
+    for (const target of ["locations", "item-locations", "preparation", "location-item-map", "location-count-sessions"]) {
+        assert.match(structurePanel, new RegExp(`data-admin-target="${target}"`));
+    }
+    for (const target of ["backup", "about"]) {
+        assert.match(securityPanel, new RegExp(`data-admin-target="${target}"`));
+    }
+});
+
+await runTest("submenus começam ocultos e oferecem retorno ao menu raiz", async () => {
+    const html = fs.readFileSync("index.html", "utf8");
+    assert.equal(html.match(/data-admin-group-panel="[^"]+" hidden/g)?.length, 3);
+    assert.equal(html.match(/class="admin-menu-group-back"/g)?.length, 3);
+});
+
+await runTest("navegação mostra somente o grupo escolhido e preserva retorno das seções", async () => {
+    const uiSource = fs.readFileSync("src/ui.js", "utf8");
+    assert.match(uiSource, /panel\.hidden = panel !== selectedPanel/);
+    assert.match(uiSource, /button\.dataset\.adminGroup/);
+    assert.match(uiSource, /if \(currentAdminGroup\)[\s\S]*showAdminGroup\(currentAdminGroup\)/);
+    assert.match(uiSource, /showAdminRootMenu\(\)/);
+});
+
+await runTest("destinos piloto e legados continuam ocultos", async () => {
+    const html = fs.readFileSync("index.html", "utf8");
+    for (const target of ["catalog", "catalog-import", "units", "history"]) {
+        const hiddenTarget = new RegExp(`class="[^"]*pilot-hidden[^"]*" data-admin-target="${target}"`);
+        assert.match(html, hiddenTarget);
+    }
+});
+
+await runTest("topbar ocupa a primeira camada opaca da superfície rolável", async () => {
+    const html = fs.readFileSync("index.html", "utf8");
+    const styles = fs.readFileSync("src/styles.css", "utf8");
+    assert.match(html, /class="modal-content admin-content">\s*<div class="admin-topbar">/);
+    assert.match(styles, /\.admin-content\s*{[\s\S]*?overflow-y:\s*auto;[\s\S]*?isolation:\s*isolate;/);
+    assert.match(styles, /\.admin-topbar\s*{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*0;[\s\S]*?z-index:\s*10;/);
+    assert.match(styles, /\.admin-topbar\s*{[\s\S]*?background-color:\s*var\(--color-surface\);/);
+});
+
+await runTest("modal trata safe-area e impede scroll de conteúdo acima da topbar", async () => {
+    const styles = fs.readFileSync("src/styles.css", "utf8");
+    const uiSource = fs.readFileSync("src/ui.js", "utf8");
+    assert.match(styles, /#configModal\s*{[\s\S]*?safe-area-inset-top[\s\S]*?overflow:\s*hidden;/);
+    assert.match(styles, /\.admin-content\s*{[\s\S]*?padding-top:\s*0;[\s\S]*?overflow-y:\s*auto;/);
+    assert.match(uiSource, /querySelector\("\.admin-content"\)\.scrollTop = 0/);
+});
+
+await runTest("Escape, backdrop, foco e scroll lock permanecem conectados", async () => {
+    const uiSource = fs.readFileSync("src/ui.js", "utf8");
+    assert.match(uiSource, /event\.target === modal/);
+    assert.match(uiSource, /event\.key !== "Escape"/);
+    assert.match(uiSource, /configModalReturnFocus = document\.activeElement/);
+    assert.match(uiSource, /configModalReturnFocus\?\.focus\?\.\(\)/);
+    assert.match(uiSource, /document\.body\.style\.overflow = "hidden"/);
+    assert.match(uiSource, /document\.body\.style\.overflow = bodyOverflowBeforeConfigModal/);
+});
+
 await runTest("diagnósticos vazios são resumidos sem remover os cálculos", async () => {
     const mapSource = fs.readFileSync("src/locationItemMapUi.js", "utf8");
     const preparationSource = fs.readFileSync("src/countPreparationUi.js", "utf8");

@@ -260,7 +260,12 @@
             </div>
 
             <section id="admin-menu" class="admin-menu" aria-label="Menu de configurações">
-                <div class="admin-menu-group">
+                <div id="admin-menu-root" class="admin-menu-root">
+                    <button type="button" class="admin-menu-group-button" data-admin-group="primary">Configuração principal</button>
+                    <button type="button" class="admin-menu-group-button" data-admin-group="structure">Estrutura e diagnóstico</button>
+                    <button type="button" class="admin-menu-group-button" data-admin-group="security">Segurança e dados</button>
+                </div>
+                <div class="admin-menu-group" data-admin-group-panel="primary" hidden>
                     <h3>Configuração principal</h3>
                     <div class="admin-menu-group-actions">
                         <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="catalog">Catálogo de itens</button>
@@ -271,8 +276,9 @@
                         <button type="button" class="admin-menu-button" data-admin-target="item-unit-settings">Unidades padrão</button>
                         <button type="button" class="admin-menu-button" data-admin-target="whatsapp-settings">WhatsApp de envio</button>
                     </div>
+                    <button type="button" class="admin-menu-group-back">Voltar</button>
                 </div>
-                <div class="admin-menu-group">
+                <div class="admin-menu-group" data-admin-group-panel="structure" hidden>
                     <h3>Estrutura e diagnóstico</h3>
                     <div class="admin-menu-group-actions">
                         <button type="button" class="admin-menu-button" data-admin-target="locations">Locais físicos</button>
@@ -282,13 +288,15 @@
                         <button type="button" class="admin-menu-button" data-admin-target="location-count-sessions">Sessões de contagem</button>
                         <button type="button" class="admin-menu-button pilot-hidden" data-admin-target="history">Histórico de contagens</button>
                     </div>
+                    <button type="button" class="admin-menu-group-back">Voltar</button>
                 </div>
-                <div class="admin-menu-group">
+                <div class="admin-menu-group" data-admin-group-panel="security" hidden>
                     <h3>Segurança e dados</h3>
                     <div class="admin-menu-group-actions">
                         <button type="button" class="admin-menu-button" data-admin-target="backup">Backup e restauração</button>
                         <button type="button" class="admin-menu-button" data-admin-target="about">Sobre o app</button>
                     </div>
+                    <button type="button" class="admin-menu-group-back">Voltar</button>
                 </div>
             </section>
 
