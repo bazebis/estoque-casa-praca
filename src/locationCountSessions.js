@@ -41,7 +41,7 @@ function normalizePlannedItem(item) {
     };
 }
 
-function normalizePlannedItems(items) {
+export function normalizePlannedItems(items) {
     if (!Array.isArray(items)) {
         return [];
     }
@@ -149,7 +149,7 @@ export function getLocationCountSessionPreparation(template, location, links, lo
     };
 }
 
-function collectPlannedItemErrors(items, sessionLocationId) {
+export function collectPlannedItemErrors(items, sessionLocationId) {
     const errors = [];
     const linkIds = new Set();
 

@@ -1,5 +1,5 @@
 const databaseName = "estoqueCasaPracaDB";
-const databaseVersion = 6;
+const databaseVersion = 7;
 
 const storeNames = {
     appState: "appState",
@@ -12,7 +12,8 @@ const storeNames = {
     locationNodes: "locationNodes",
     itemLocationLinks: "itemLocationLinks",
     locationCountSessions: "locationCountSessions",
-    locationCountEntries: "locationCountEntries"
+    locationCountEntries: "locationCountEntries",
+    countRounds: "countRounds"
 };
 
 const storeKeyFields = {
@@ -26,7 +27,8 @@ const storeKeyFields = {
     [storeNames.locationNodes]: "id",
     [storeNames.itemLocationLinks]: "id",
     [storeNames.locationCountSessions]: "id",
-    [storeNames.locationCountEntries]: "id"
+    [storeNames.locationCountEntries]: "id",
+    [storeNames.countRounds]: "id"
 };
 
 let databasePromise = null;
@@ -38,12 +40,18 @@ function createRequestPromise(request) {
     });
 }
 
-function createStore(database, storeName, options) {
+function createStore(database, storeName, options, transaction = null) {
     if (database.objectStoreNames.contains(storeName)) {
-        return;
+        return transaction?.objectStore(storeName) || null;
     }
 
-    database.createObjectStore(storeName, options);
+    return database.createObjectStore(storeName, options);
+}
+
+function ensureCountRoundsIndex(store) {
+    if (store && !store.indexNames.contains("activeTemplateId")) {
+        store.createIndex("activeTemplateId", "activeTemplateId", { unique: true });
+    }
 }
 
 function runStoreOperation(storeName, mode, operation) {
@@ -103,6 +111,7 @@ export function openDatabase() {
 
         request.onupgradeneeded = () => {
             const database = request.result;
+            const transaction = request.transaction;
 
             createStore(database, storeNames.appState, { keyPath: "key" });
             createStore(database, storeNames.catalog, { keyPath: "id" });
@@ -115,6 +124,13 @@ export function openDatabase() {
             createStore(database, storeNames.itemLocationLinks, { keyPath: "id" });
             createStore(database, storeNames.locationCountSessions, { keyPath: "id" });
             createStore(database, storeNames.locationCountEntries, { keyPath: "id" });
+            const countRoundsStore = createStore(
+                database,
+                storeNames.countRounds,
+                { keyPath: "id" },
+                transaction
+            );
+            ensureCountRoundsIndex(countRoundsStore);
         };
 
         request.onsuccess = () => resolve(request.result);
@@ -193,6 +209,34 @@ export async function replaceStoresAtomically({ replacements = {}, records = [] 
         });
         records.forEach((record) => stores[record.storeName].put(record.value));
     });
+}
+
+export function addRecordFromStoreSnapshot({ sourceStoreNames = [], targetStoreName, buildRecord }) {
+    const selectedStoreNames = [...new Set([...sourceStoreNames, targetStoreName])];
+
+    return openDatabase().then((database) => (
+        new Promise((resolve, reject) => {
+            const transaction = database.transaction(selectedStoreNames, "readwrite");
+            const stores = Object.fromEntries(selectedStoreNames.map((storeName) => (
+                [storeName, transaction.objectStore(storeName)]
+            )));
+            let createdRecord;
+
+            transaction.oncomplete = () => resolve(createdRecord);
+            transaction.onerror = () => reject(transaction.error);
+            transaction.onabort = () => reject(transaction.error || new Error("Transação cancelada."));
+
+            Promise.all(sourceStoreNames.map(async (storeName) => (
+                [storeName, await createRequestPromise(stores[storeName].getAll())]
+            ))).then((recordEntries) => {
+                createdRecord = buildRecord(Object.fromEntries(recordEntries));
+                stores[targetStoreName].add(createdRecord);
+            }).catch((error) => {
+                transaction.abort();
+                reject(error);
+            });
+        })
+    ));
 }
 
 export { storeNames };

@@ -242,11 +242,11 @@ runTest("outside_area continua excluída do TOTAL", () => {
     assert.equal(item.total.status, "pending");
 });
 
-runTest("lifecycle, storage, snapshots, consolidação e Backup Schema 2 não mudaram", () => {
+runTest("fundação 4B preserva lifecycle, snapshots, consolidação e Backup Schema 2", () => {
     const protectedHashes = {
-        "src/storage.js": "986b146a898654fd96a54bf844553ca1f128464f5734a23a9cac009748caa3e7",
-        "src/db.js": "bbe035b4d88d9254d7b53e84ba0d58236a117476511921a54e334cc92d51304b",
-        "src/locationCountSessions.js": "0492fab17b0bef0f2194942ae6d85212b884ed8b59b712841fe7edf62a878bc8",
+        "src/storage.js": "3f2367ffa6064a32b1a0ee78709c38054cb93ae66b91c539776550c330640815",
+        "src/db.js": "0f9a0da0539a8fa6b48d45b31c185cd9fc3a03f5d35eed42b0b351714608f77d",
+        "src/locationCountSessions.js": "e558df393f8ae2f64b96a366dd7b42a82a513c034e93ea0903523a6524dc3703",
         "src/locationCountEntries.js": "8e0689ff4f7ea47393cb58f03032c173af22e353b70dcf54ccb0ffeec1dde992",
         "src/consolidationSnapshots.js": "f067f20db0afe1841a0012e57537f1aa6a4ef26d3d7a00cb0211adc8b6a3cee6",
         "src/countConsolidation.js": "effa0ab0bcefaec79fff1967416059d9e3a22fbec1d0169dffa328bad2e6c8ab",

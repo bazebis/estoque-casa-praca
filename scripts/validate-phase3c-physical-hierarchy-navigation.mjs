@@ -386,11 +386,11 @@ runTest("Quick Pilot permanece byte a byte inalterado", () => {
     assert.equal(fileSha256("src/quickPilot.js"), "5ac2f3fb035bd4049f1ce4ece4fe34f2f2237fdabf6d3eecdb5dc9956d7e352d");
 });
 
-runTest("storage, schema, sessões, entries, backup e conversão permanecem inalterados", () => {
+runTest("superfícies protegidas refletem a fundação 4B sem alterar entries, backup ou conversão", () => {
     const protectedHashes = {
-        "src/storage.js": "986b146a898654fd96a54bf844553ca1f128464f5734a23a9cac009748caa3e7",
-        "src/db.js": "bbe035b4d88d9254d7b53e84ba0d58236a117476511921a54e334cc92d51304b",
-        "src/locationCountSessions.js": "0492fab17b0bef0f2194942ae6d85212b884ed8b59b712841fe7edf62a878bc8",
+        "src/storage.js": "3f2367ffa6064a32b1a0ee78709c38054cb93ae66b91c539776550c330640815",
+        "src/db.js": "0f9a0da0539a8fa6b48d45b31c185cd9fc3a03f5d35eed42b0b351714608f77d",
+        "src/locationCountSessions.js": "e558df393f8ae2f64b96a366dd7b42a82a513c034e93ea0903523a6524dc3703",
         "src/locationCountEntries.js": "8e0689ff4f7ea47393cb58f03032c173af22e353b70dcf54ccb0ffeec1dde992",
         "src/backup.js": "9e42e9758f98b612d176e15c37e177dbecc4125c8b9f4e1ca3f88cce63ef8652",
         "src/unitConversion.js": "fe8b997f21d22e33f7ee3f4814eb1563b957e8365f197175d9fcf937df8d55f1"

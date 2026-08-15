@@ -33,6 +33,11 @@ import {
     validateLocationCountSession
 } from "./locationCountSessions.js";
 import {
+    assertValidCountRoundCollection,
+    CountRoundError,
+    createCountRoundModel
+} from "./countRounds.js";
+import {
     createLocationCountEntryModel,
     hasActiveEntriesForItemInOpenSessions,
     normalizeLocationCountEntries,
@@ -47,6 +52,7 @@ import {
 } from "./consolidationSnapshots.js";
 import { normalizeCustomUnits } from "./units.js";
 import {
+    addRecordFromStoreSnapshot,
     bulkPut,
     deleteFromStore,
     getAllFromStore,
@@ -70,6 +76,7 @@ const locationNodesStorageKey = "locationNodes";
 const itemLocationLinksStorageKey = "itemLocationLinks";
 const locationCountSessionsStorageKey = "locationCountSessions";
 const locationCountEntriesStorageKey = "locationCountEntries";
+const countRoundsStorageKey = "countRounds";
 const whatsappSettingsStorageKey = "whatsappSettings";
 const itemUnitSettingsStorageKey = "itemUnitSettings";
 const consolidationSnapshotsStorageKey = "consolidationSnapshots";
@@ -86,12 +93,21 @@ let isStorageInitialized = false;
 let shouldUseIndexedDB = false;
 let storageWarning = "";
 let itemUnitSettingsMutationQueue = Promise.resolve();
+let countRoundMutationQueue = Promise.resolve();
 
 function serializeItemUnitSettingsMutation(mutation) {
     const operation = itemUnitSettingsMutationQueue.then(mutation, mutation);
 
     // A fila precisa continuar utilizável mesmo quando uma mutação individual falha.
     itemUnitSettingsMutationQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+}
+
+function serializeCountRoundMutation(mutation) {
+    const operation = countRoundMutationQueue.then(mutation, mutation);
+
+    // A fila fecha corridas no mesmo contexto; o índice unique protege o IndexedDB entre contextos.
+    countRoundMutationQueue = operation.then(() => undefined, () => undefined);
     return operation;
 }
 
@@ -358,6 +374,26 @@ function deleteLocalLocationCountSession(sessionId) {
     writeJson(locationCountSessionsStorageKey, sessions);
 }
 
+function sortCountRounds(rounds) {
+    return assertValidCountRoundCollection(rounds).sort((firstRound, secondRound) => (
+        new Date(secondRound.createdAt) - new Date(firstRound.createdAt)
+        || firstRound.id.localeCompare(secondRound.id, "pt-BR")
+    ));
+}
+
+function loadLocalCountRounds() {
+    const rounds = readJson(countRoundsStorageKey);
+    return sortCountRounds(Array.isArray(rounds) ? rounds : []);
+}
+
+function saveLocalCountRound(round) {
+    const rounds = loadLocalCountRounds().filter((item) => item.id !== round.id);
+    const nextRounds = sortCountRounds([...rounds, round]);
+
+    writeJson(countRoundsStorageKey, nextRounds);
+    return nextRounds.find((item) => item.id === round.id);
+}
+
 function sortLocationCountEntries(entries) {
     return normalizeLocationCountEntries(entries).sort((firstEntry, secondEntry) => (
         new Date(firstEntry.createdAt) - new Date(secondEntry.createdAt)
@@ -562,6 +598,19 @@ async function migrateLocationCountEntriesToIndexedDB() {
     return localEntries.length > 0;
 }
 
+async function migrateCountRoundsToIndexedDB() {
+    const localRounds = loadLocalCountRounds();
+    if (localRounds.length === 0) return false;
+
+    const storedRounds = assertValidCountRoundCollection(await getAllFromStore(storeNames.countRounds));
+    const storedRoundIds = new Set(storedRounds.map((round) => round.id));
+    const missingRounds = localRounds.filter((round) => !storedRoundIds.has(round.id));
+
+    assertValidCountRoundCollection([...storedRounds, ...missingRounds]);
+    if (missingRounds.length > 0) await bulkPut(storeNames.countRounds, missingRounds);
+    return missingRounds.length > 0;
+}
+
 async function runWithFallback(dbOperation, fallbackOperation) {
     if (!shouldUseIndexedDB) {
         return fallbackOperation();
@@ -598,6 +647,7 @@ export async function initializeStorage() {
         const wereItemLocationLinksMigrated = await migrateItemLocationLinksToIndexedDB();
         const wereLocationCountSessionsMigrated = await migrateLocationCountSessionsToIndexedDB();
         const wereLocationCountEntriesMigrated = await migrateLocationCountEntriesToIndexedDB();
+        const wereCountRoundsMigrated = await migrateCountRoundsToIndexedDB();
         isStorageInitialized = true;
         return {
             ...getStorageStatus(),
@@ -607,6 +657,7 @@ export async function initializeStorage() {
                 || wereItemLocationLinksMigrated
                 || wereLocationCountSessionsMigrated
                 || wereLocationCountEntriesMigrated
+                || wereCountRoundsMigrated
         };
     } catch (error) {
         shouldUseIndexedDB = false;
@@ -1644,6 +1695,118 @@ export async function getEffectiveUnit(templateId, itemCode) {
         listLocationCountEntries()
     ]);
     return inferUnitForTemplateItem(template, itemCode, entries)?.effectiveUnit || "";
+}
+
+function setCountRoundFallbackWarning(error) {
+    shouldUseIndexedDB = false;
+    storageWarning = "O armazenamento principal falhou. As rodadas continuarão no modo alternativo deste navegador.";
+    console.warn(storageWarning, error);
+}
+
+function isCountRoundBusinessError(error) {
+    return error instanceof CountRoundError || error?.name === "ConstraintError";
+}
+
+async function runCountRoundReadWithFallback(databaseOperation, fallbackOperation) {
+    if (!shouldUseIndexedDB) return fallbackOperation();
+
+    try {
+        return await databaseOperation();
+    } catch (error) {
+        if (isCountRoundBusinessError(error)) throw error;
+        setCountRoundFallbackWarning(error);
+        return fallbackOperation();
+    }
+}
+
+function findTemplateRecord(templates, templateId) {
+    return templates.find((template) => String(template?.id || "").trim() === templateId) || null;
+}
+
+function createCountRoundFromCollections(templateId, collections) {
+    return createCountRoundModel({
+        template: findTemplateRecord(collections.countTemplates || [], templateId),
+        nodes: collections.locationNodes || [],
+        links: collections.itemLocationLinks || [],
+        sessions: collections.locationCountSessions || [],
+        rounds: collections.countRounds || []
+    });
+}
+
+async function startIndexedDBCountRound(templateId) {
+    const sourceStoreNames = [
+        storeNames.countTemplates,
+        storeNames.locationNodes,
+        storeNames.itemLocationLinks,
+        storeNames.locationCountSessions,
+        storeNames.countRounds
+    ];
+
+    return addRecordFromStoreSnapshot({
+        sourceStoreNames,
+        targetStoreName: storeNames.countRounds,
+        buildRecord: (recordsByStore) => createCountRoundFromCollections(templateId, recordsByStore)
+    });
+}
+
+function startLocalCountRound(templateId) {
+    const round = createCountRoundFromCollections(templateId, {
+        countTemplates: loadLocalCountTemplates(),
+        locationNodes: loadLocalLocationNodes(),
+        itemLocationLinks: loadLocalItemLocationLinks(),
+        locationCountSessions: loadLocalLocationCountSessions(),
+        countRounds: loadLocalCountRounds()
+    });
+
+    return saveLocalCountRound(round);
+}
+
+async function startCountRoundSerialized(templateId) {
+    const normalizedTemplateId = String(templateId || "").trim();
+    if (!normalizedTemplateId) throw new CountRoundError("Selecione um template para iniciar a rodada.");
+    if (!shouldUseIndexedDB) return startLocalCountRound(normalizedTemplateId);
+
+    try {
+        const round = await startIndexedDBCountRound(normalizedTemplateId);
+        try {
+            saveLocalCountRound(round);
+        } catch (mirrorError) {
+            console.warn("A rodada foi salva no IndexedDB, mas o espelho local não pôde ser atualizado.", mirrorError);
+        }
+        return round;
+    } catch (error) {
+        if (error?.name === "ConstraintError") {
+            throw new CountRoundError("Já existe uma rodada ativa para este template.", "active-round-exists");
+        }
+        if (error instanceof CountRoundError) throw error;
+        setCountRoundFallbackWarning(error);
+        return startLocalCountRound(normalizedTemplateId);
+    }
+}
+
+export async function listCountRounds() {
+    return runCountRoundReadWithFallback(
+        async () => sortCountRounds(await getAllFromStore(storeNames.countRounds)),
+        loadLocalCountRounds
+    );
+}
+
+export async function getCountRound(roundId) {
+    const normalizedRoundId = String(roundId || "").trim();
+    if (!normalizedRoundId) return null;
+    return (await listCountRounds()).find((round) => round.id === normalizedRoundId) || null;
+}
+
+export async function getActiveCountRound(templateId) {
+    const normalizedTemplateId = String(templateId || "").trim();
+    if (!normalizedTemplateId) return null;
+    return (await listCountRounds()).find((round) => (
+        round.status === "active" && round.templateId === normalizedTemplateId
+    )) || null;
+}
+
+export async function startCountRound(templateId) {
+    return serializeCountRoundMutation(() => startCountRoundSerialized(templateId));
 }
 
 export async function listLocationCountSessions() {
