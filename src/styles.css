@@ -152,9 +152,10 @@ textarea:focus-visible {
     gap: 0.65rem;
     margin: 0 0 1rem;
     padding: 1rem;
-    border: 1px solid var(--border-color, #d7d7d7);
+    border: 1px solid var(--color-border);
     border-radius: 0.75rem;
-    background: #fff;
+    background: var(--color-surface-raised);
+    color: var(--color-text);
 }
 
 .count-round-card h3,
@@ -171,6 +172,7 @@ textarea:focus-visible {
     gap: 0.25rem;
     margin: 0;
     padding-left: 1.25rem;
+    color: var(--color-text-muted);
 }
 
 .count-round-location-state {
