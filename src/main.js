@@ -114,12 +114,10 @@ import {
 import { registerPwa } from "./pwa.js";
 import {
     buildQuickPilotLinkCandidates,
-    buildQuickPilotPlan,
-    summarizeQuickPilotStatus
+    buildQuickPilotPlan
 } from "./quickPilot.js";
 import {
     connectQuickPilotEvents,
-    renderPilotDashboardStatus,
     renderQuickPilot,
     showQuickPilotFeedback
 } from "./quickPilotUi.js";
@@ -693,17 +691,9 @@ function reconcileHierarchySelection(hierarchy) {
 
 async function refreshPilotDashboard(message = "") {
     try {
-        const [context, whatsappSettings] = await Promise.all([
-            loadOperationalHierarchyContext(),
-            loadWhatsappSettings()
-        ]);
-        const plan = buildQuickPilotPlan(context.selectedTemplate, context.locations, context.links);
+        const context = await loadOperationalHierarchyContext();
         activeOperationalHierarchy = context.hierarchy;
         const selectionMessage = reconcileHierarchySelection(context.hierarchy);
-        renderPilotDashboardStatus(
-            summarizeQuickPilotStatus(plan),
-            isWhatsappConfigured(whatsappSettings)
-        );
         activeHierarchyNavigationView = renderPhysicalHierarchyNavigation({
             hierarchy: context.hierarchy,
             selectedNodeId: activeHierarchyNodeId,
@@ -714,7 +704,6 @@ async function refreshPilotDashboard(message = "") {
         activeOperationalHierarchy = null;
         activeHierarchyNavigationView = null;
         activeHierarchyNodeId = null;
-        renderPilotDashboardStatus(summarizeQuickPilotStatus(null), false);
         renderPhysicalHierarchyNavigation({
             hierarchy: buildOperationalHierarchy(),
             message: "Não foi possível carregar os locais operacionais."

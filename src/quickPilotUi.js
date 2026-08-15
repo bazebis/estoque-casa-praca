@@ -100,15 +100,6 @@ export function renderQuickPilot({ templates, selectedTemplateId, plan }) {
         : "Resolva os conflitos antes de aplicar";
 }
 
-export function renderPilotDashboardStatus(status, whatsappConfigured) {
-    getElement("pilot-status-template").textContent = status.hasTemplate
-        ? `Sim — ${status.templateName}`
-        : "Não";
-    getElement("pilot-status-areas").textContent = status.areasStatus;
-    getElement("pilot-status-links").textContent = status.linksStatus;
-    getElement("pilot-status-whatsapp").textContent = whatsappConfigured ? "Configurado" : "Opcional";
-}
-
 export function showQuickPilotFeedback(message, tone = "") {
     const feedback = getElement("quick-pilot-feedback");
     feedback.textContent = message;

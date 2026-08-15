@@ -50,7 +50,7 @@ function getStatusLabel(status) {
         no_entries: "Sem lançamento",
         complete: "Completo",
         partial: "Parcial com pendências",
-        pending: "Pendente sem conversão"
+        pending: "Pendente"
     };
     return labels[status] || status;
 }

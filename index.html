@@ -22,15 +22,9 @@
     <button id="btn-iniciar-contagem" class="pilot-hidden">Iniciar Contagem</button>
 
     <main id="pilot-dashboard" class="pilot-dashboard" aria-labelledby="pilot-dashboard-title">
-        <p class="pilot-badge">Fase piloto</p>
         <h2 id="pilot-dashboard-title">Contagem por locais</h2>
         <p class="pilot-dashboard-description">Navegue pela estrutura física e conte os itens do local exato.</p>
-        <dl class="pilot-status-summary" aria-label="Status do piloto">
-            <div><dt>Template importado</dt><dd id="pilot-status-template">Verificando…</dd></div>
-            <div><dt>Áreas macro configuradas</dt><dd id="pilot-status-areas">Verificando…</dd></div>
-            <div><dt>Vínculos por área</dt><dd id="pilot-status-links">Verificando…</dd></div>
-            <div><dt>WhatsApp de envio</dt><dd id="pilot-status-whatsapp">Verificando…</dd></div>
-        </dl>
+        <p id="pilot-active-template" class="pilot-active-template" hidden></p>
         <section class="pilot-area-panel" aria-labelledby="pilot-area-title">
             <div class="physical-hierarchy-header">
                 <button type="button" id="btn-back-physical-hierarchy" hidden>Voltar</button>
@@ -89,7 +83,7 @@
 
     <section id="count-consolidation-view" class="count-consolidation-view" hidden aria-labelledby="count-consolidation-title">
         <div class="count-consolidation-topbar">
-            <button type="button" id="btn-close-count-consolidation">Voltar para áreas</button>
+            <button type="button" id="btn-close-count-consolidation">Voltar para locais</button>
             <span class="count-consolidation-readonly">Somente leitura</span>
         </div>
         <p class="pilot-badge">Diagnóstico operacional</p>
@@ -144,7 +138,7 @@
 
     <section id="consolidation-snapshots-view" class="consolidation-snapshots-view" hidden aria-labelledby="consolidation-snapshots-title">
         <div class="count-consolidation-topbar">
-            <button type="button" id="btn-close-consolidation-snapshots">Voltar para áreas</button>
+            <button type="button" id="btn-close-consolidation-snapshots">Voltar para locais</button>
             <span class="count-consolidation-readonly">Fotos congeladas</span>
         </div>
         <p class="pilot-badge">Armazenamento local</p>
@@ -725,12 +719,12 @@
                 <h3>Sobre o app</h3>
                 <ul class="about-list">
                     <li><strong>Estoque Casa da Praça</strong></li>
-                    <li>Este app está em fase de piloto para contagem simples por áreas macro.</li>
+                    <li>Este app organiza a contagem por locais físicos hierárquicos.</li>
                     <li>Os dados ficam salvos localmente neste aparelho e navegador.</li>
                     <li>O template JSON deve ser importado manualmente em cada aparelho.</li>
                     <li>O Piloto rápido pode criar áreas macro e vínculos automaticamente; os módulos detalhados continuam disponíveis para ajustes manuais.</li>
                     <li>A configuração de WhatsApp é opcional, local e não realiza envios automáticos.</li>
-                    <li>A contagem por área aceita múltiplas entradas, converte unidades previstas no perfil e consolida os totais com precisão.</li>
+                    <li>A contagem por local aceita múltiplas entradas, converte unidades previstas no perfil e consolida os totais por áreas de relatório com precisão.</li>
                     <li>Os fechamentos podem ser preservados e exportados em CSV ou XLSX, com apoio para envio manual pelo WhatsApp.</li>
                     <li>Ainda não existe integração com ERP ou API.</li>
                     <li>Ainda não existe sincronização de dados entre aparelhos.</li>

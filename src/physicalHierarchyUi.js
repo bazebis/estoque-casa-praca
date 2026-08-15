@@ -165,6 +165,14 @@ function renderDirectItemsPanel(selectedNode) {
         : "Iniciar contagem deste local";
 }
 
+function renderActiveTemplate(view) {
+    const activeTemplate = getElement("pilot-active-template");
+    activeTemplate.hidden = !view.hasTemplate;
+    activeTemplate.textContent = view.hasTemplate
+        ? `Template ativo: ${view.templateName}`
+        : "";
+}
+
 export function renderPhysicalHierarchyNavigation(options = {}) {
     const view = buildPhysicalHierarchyNavigationView(options);
     const guidance = options.message || view.guidance;
@@ -174,6 +182,7 @@ export function renderPhysicalHierarchyNavigation(options = {}) {
     getElement("pilot-area-title").textContent = view.selectedNode ? "Locais filhos" : "Locais para contar";
     getElement("pilot-area-guidance").textContent = guidance;
     getElement("pilot-area-list").innerHTML = renderEmptyList(view);
+    renderActiveTemplate(view);
     backButton.hidden = !view.selectedNode;
     breadcrumb.hidden = !view.selectedNode;
     breadcrumb.textContent = view.breadcrumb;

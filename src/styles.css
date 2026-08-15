@@ -141,7 +141,12 @@ textarea:focus-visible {
     color: var(--color-text-muted);
 }
 
-.pilot-status-summary,
+.pilot-active-template {
+    margin: var(--space-2) 0 0;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
 .quick-pilot-summary {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -149,7 +154,6 @@ textarea:focus-visible {
     margin: var(--space-4) 0;
 }
 
-.pilot-status-summary div,
 .quick-pilot-summary div {
     min-width: 0;
     padding: var(--space-3);
@@ -158,13 +162,11 @@ textarea:focus-visible {
     border-radius: var(--radius-md);
 }
 
-.pilot-status-summary dt,
 .quick-pilot-summary dt {
     color: var(--color-text-muted);
     font-size: 0.8rem;
 }
 
-.pilot-status-summary dd,
 .quick-pilot-summary dd {
     margin: var(--space-1) 0 0;
     font-weight: 700;
