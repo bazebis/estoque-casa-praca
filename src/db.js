@@ -239,4 +239,99 @@ export function addRecordFromStoreSnapshot({ sourceStoreNames = [], targetStoreN
     ));
 }
 
+export function mutateCountRoundLocationSession({ roundId, locationId, buildMutation }) {
+    return openDatabase().then((database) => new Promise((resolve, reject) => {
+        const transaction = database.transaction(
+            [storeNames.countRounds, storeNames.locationCountSessions],
+            "readwrite"
+        );
+        const roundStore = transaction.objectStore(storeNames.countRounds);
+        const sessionStore = transaction.objectStore(storeNames.locationCountSessions);
+        let mutationResult;
+        let operationError = null;
+
+        function abortWith(error) {
+            operationError = error;
+            transaction.abort();
+        }
+
+        function applyMutation(round, existingSession) {
+            try {
+                mutationResult = buildMutation({ round, existingSession });
+                if (!mutationResult.created) return;
+                sessionStore.add(mutationResult.session);
+                roundStore.put(mutationResult.round);
+            } catch (error) {
+                abortWith(error);
+            }
+        }
+
+        transaction.oncomplete = () => resolve(mutationResult);
+        transaction.onerror = () => reject(operationError || transaction.error);
+        transaction.onabort = () => reject(operationError || transaction.error || new Error("Transação cancelada."));
+        const roundRequest = roundStore.get(roundId);
+        roundRequest.onerror = () => abortWith(roundRequest.error);
+        roundRequest.onsuccess = () => {
+            const round = roundRequest.result;
+            const mappedSessionId = round?.locations?.find((location) => (
+                location.locationId === locationId
+            ))?.sessionId;
+            if (!mappedSessionId) {
+                applyMutation(round, null);
+                return;
+            }
+            const sessionRequest = sessionStore.get(mappedSessionId);
+            sessionRequest.onerror = () => abortWith(sessionRequest.error);
+            sessionRequest.onsuccess = () => applyMutation(round, sessionRequest.result);
+        };
+    }));
+}
+
+export function reconcileCountRoundFallbackMappings({ localRounds, localSessions, localEntries, buildPlan }) {
+    return openDatabase().then((database) => new Promise((resolve, reject) => {
+        const transaction = database.transaction(
+            [
+                storeNames.countRounds,
+                storeNames.locationCountSessions,
+                storeNames.locationCountEntries
+            ],
+            "readwrite"
+        );
+        const roundStore = transaction.objectStore(storeNames.countRounds);
+        const sessionStore = transaction.objectStore(storeNames.locationCountSessions);
+        const entryStore = transaction.objectStore(storeNames.locationCountEntries);
+        let reconciliationPlan = null;
+        let operationError = null;
+
+        function abortWith(error) {
+            operationError = error;
+            transaction.abort();
+        }
+
+        transaction.oncomplete = () => resolve(reconciliationPlan);
+        transaction.onerror = () => reject(operationError || transaction.error);
+        transaction.onabort = () => reject(operationError || transaction.error || new Error("Transação cancelada."));
+
+        Promise.all([
+            createRequestPromise(roundStore.getAll()),
+            createRequestPromise(sessionStore.getAll()),
+            createRequestPromise(entryStore.getAll())
+        ]).then(([indexedDbRounds, indexedDbSessions, indexedDbEntries]) => {
+            reconciliationPlan = buildPlan({
+                localRounds,
+                indexedDbRounds,
+                localSessions,
+                indexedDbSessions,
+                localEntries,
+                indexedDbEntries
+            });
+            reconciliationPlan.sessionsToAdd.forEach((session) => sessionStore.add(session));
+            reconciliationPlan.sessionsToPut.forEach((session) => sessionStore.put(session));
+            reconciliationPlan.entriesToAdd.forEach((entry) => entryStore.add(entry));
+            reconciliationPlan.entriesToPut.forEach((entry) => entryStore.put(entry));
+            reconciliationPlan.roundsToPut.forEach((round) => roundStore.put(round));
+        }).catch(abortWith);
+    }));
+}
+
 export { storeNames };

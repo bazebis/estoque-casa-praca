@@ -245,27 +245,28 @@ function createSessionId() {
     return `location_count_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-export function createLocationCountSessionDraftModel({ template, location, links, locations, notes = "" }) {
-    const preparation = getLocationCountSessionPreparation(template, location, links, locations);
-
-    if (!preparation.canCreate) {
-        throw new Error(preparation.errors[0]);
-    }
-
-    const timestamp = new Date().toISOString();
-    const path = getLocationPath(location.id, locations).map((node) => node.name);
-
-    return normalizeLocationCountSession({
-        id: createSessionId(),
-        templateId: template.id,
-        templateNameSnapshot: template.name,
-        locationId: location.id,
-        locationPathSnapshot: path.length > 0 ? path : [location.name],
-        reportAreaSnapshot: location.reportArea || null,
+export function createLocationCountSessionDraftFromPlanModel({
+    templateId,
+    templateNameSnapshot,
+    locationId,
+    locationPathSnapshot,
+    reportAreaSnapshot = null,
+    plannedItems = [],
+    notes = "",
+    id = createSessionId(),
+    timestamp = new Date().toISOString()
+} = {}) {
+    const candidate = normalizeLocationCountSession({
+        id,
+        templateId,
+        templateNameSnapshot,
+        locationId,
+        locationPathSnapshot,
+        reportAreaSnapshot,
         status: "draft",
-        plannedItems: preparation.plannedItems,
-        plannedItemCount: preparation.plannedItems.length,
-        activeLinkCountSnapshot: preparation.plannedItems.length,
+        plannedItems,
+        plannedItemCount: plannedItems.length,
+        activeLinkCountSnapshot: plannedItems.length,
         createdAt: timestamp,
         updatedAt: timestamp,
         startedAt: null,
@@ -273,6 +274,41 @@ export function createLocationCountSessionDraftModel({ template, location, links
         canceledAt: null,
         notes
     }, timestamp);
+    const errors = [
+        ...collectSessionErrors(candidate, [{ id: candidate?.templateId }], [{
+            id: candidate?.locationId,
+            name: candidate?.locationPathSnapshot.at(-1),
+            type: "custom",
+            parentId: null,
+            order: 0,
+            active: true
+        }]),
+        ...collectCountAndDateErrors(candidate),
+        ...collectPlannedItemErrors(candidate?.plannedItems || [], candidate?.locationId)
+    ];
+
+    if (errors.length > 0) throw new Error(errors[0]);
+    return candidate;
+}
+
+export function createLocationCountSessionDraftModel({ template, location, links, locations, notes = "" }) {
+    const preparation = getLocationCountSessionPreparation(template, location, links, locations);
+
+    if (!preparation.canCreate) {
+        throw new Error(preparation.errors[0]);
+    }
+
+    const path = getLocationPath(location.id, locations).map((node) => node.name);
+
+    return createLocationCountSessionDraftFromPlanModel({
+        templateId: template.id,
+        templateNameSnapshot: template.name,
+        locationId: location.id,
+        locationPathSnapshot: path.length > 0 ? path : [location.name],
+        reportAreaSnapshot: location.reportArea || null,
+        plannedItems: preparation.plannedItems,
+        notes
+    });
 }
 
 export function summarizeLocationCountSessions(sessions) {

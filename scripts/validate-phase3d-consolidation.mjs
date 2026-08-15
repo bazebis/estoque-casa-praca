@@ -242,11 +242,11 @@ runTest("outside_area continua excluída do TOTAL", () => {
     assert.equal(item.total.status, "pending");
 });
 
-runTest("fundação 4B preserva lifecycle, snapshots, consolidação e Backup Schema 2", () => {
+runTest("jornada 4C preserva lifecycle, snapshots, consolidação e Backup Schema 2", () => {
     const protectedHashes = {
-        "src/storage.js": "3f2367ffa6064a32b1a0ee78709c38054cb93ae66b91c539776550c330640815",
-        "src/db.js": "0f9a0da0539a8fa6b48d45b31c185cd9fc3a03f5d35eed42b0b351714608f77d",
-        "src/locationCountSessions.js": "e558df393f8ae2f64b96a366dd7b42a82a513c034e93ea0903523a6524dc3703",
+        "src/storage.js": "5c749bf622f2d36da28785a52339206e8ac4df3a691f63da9fe07f2ae68703f1",
+        "src/db.js": "d825db4e01ea0428d4e845518d653d5c13bbe431f0ccf09aaef6f760836b398b",
+        "src/locationCountSessions.js": "c3472ac9294cc475ab98a69223e1bac4686fcf12b5c603f44d4d685e9133b059",
         "src/locationCountEntries.js": "8e0689ff4f7ea47393cb58f03032c173af22e353b70dcf54ccb0ffeec1dde992",
         "src/consolidationSnapshots.js": "f067f20db0afe1841a0012e57537f1aa6a4ef26d3d7a00cb0211adc8b6a3cee6",
         "src/countConsolidation.js": "effa0ab0bcefaec79fff1967416059d9e3a22fbec1d0169dffa328bad2e6c8ab",
@@ -255,6 +255,9 @@ runTest("fundação 4B preserva lifecycle, snapshots, consolidação e Backup Sc
     Object.entries(protectedHashes).forEach(([path, expectedHash]) => {
         assert.equal(fileSha256(path), expectedHash, path);
     });
+    assert.match(readSource("src/storage.js"), /assertLinkedSessionMutationAllowed/);
+    assert.match(readSource("src/db.js"), /mutateCountRoundLocationSession/);
+    assert.match(readSource("src/locationCountSessions.js"), /status: "draft"/);
 });
 
 runTest("Miolo preserva 2 un + 500 ml + 1 l = 7.5 l", () => {

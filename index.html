@@ -25,6 +25,13 @@
         <h2 id="pilot-dashboard-title">Contagem por locais</h2>
         <p class="pilot-dashboard-description">Navegue pela estrutura física e conte os itens do local exato.</p>
         <p id="pilot-active-template" class="pilot-active-template" hidden></p>
+        <section id="count-round-card" class="count-round-card" aria-labelledby="count-round-title">
+            <h3 id="count-round-title">Iniciar contagem</h3>
+            <p id="count-round-description"></p>
+            <progress id="count-round-progress" value="0" max="1" hidden></progress>
+            <ul id="count-round-location-summary" class="count-round-location-summary" hidden></ul>
+            <button type="button" id="btn-count-round-action">Iniciar contagem</button>
+        </section>
         <section class="pilot-area-panel" aria-labelledby="pilot-area-title">
             <div class="physical-hierarchy-header">
                 <button type="button" id="btn-back-physical-hierarchy" hidden>Voltar</button>

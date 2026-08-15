@@ -29,15 +29,22 @@ function pluralize(count, singular, plural) {
     return `${count} ${count === 1 ? singular : plural}`;
 }
 
-export function resolvePhysicalHierarchyNodeAction(node) {
+export function resolvePhysicalHierarchyNodeAction(node, options = {}) {
     if (node?.hasChildren) {
         return "navigate";
     }
 
-    return resolvePhysicalHierarchyCountingMode(node) === "blocked" ? "empty" : "count";
+    return resolvePhysicalHierarchyCountingMode(node, options) === "blocked" ? "empty" : "count";
 }
 
-export function resolvePhysicalHierarchyCountingMode(node) {
+export function resolvePhysicalHierarchyCountingMode(node, options = {}) {
+    if (options.hasActiveRound === false) return "blocked";
+    if (options.hasActiveRound === true) {
+        if (!options.roundLocation || options.roundLocation.operationalState === "attention") return "blocked";
+        return options.roundLocation.sessionId ? "resume" : "start";
+    }
+
+    // A forma legada continua útil aos helpers históricos; a produção sempre informa o contexto da rodada.
     if (node?.openSession) {
         return "resume";
     }
@@ -45,7 +52,7 @@ export function resolvePhysicalHierarchyCountingMode(node) {
     return node?.hasDirectItems ? "start" : "blocked";
 }
 
-function buildNavigationGuidance(hasTemplate, selectedNode, listedNodes) {
+function buildNavigationGuidance(hasTemplate, selectedNode, listedNodes, hasActiveRound) {
     if (!hasTemplate) {
         return "Importe um template para acessar os locais de contagem.";
     }
@@ -58,12 +65,23 @@ function buildNavigationGuidance(hasTemplate, selectedNode, listedNodes) {
         return "Este local não possui subdivisões operacionais.";
     }
 
+    if (!hasActiveRound) {
+        return selectedNode
+            ? "Explore os sublocais ou volte e inicie uma contagem."
+            : "Inicie uma contagem para liberar os lançamentos nos locais planejados.";
+    }
+
     return selectedNode
         ? "Escolha um sublocal ou conte os itens vinculados diretamente a este local."
         : "Escolha um local para navegar ou iniciar uma contagem.";
 }
 
-export function buildPhysicalHierarchyNavigationView({ hierarchy, selectedNodeId = null, templateName = "" } = {}) {
+export function buildPhysicalHierarchyNavigationView({
+    hierarchy,
+    selectedNodeId = null,
+    templateName = "",
+    roundViewModel = null
+} = {}) {
     const hasTemplate = Boolean(hierarchy?.templateId);
     const requestedNodeId = String(selectedNodeId ?? "").trim();
     const selectedNode = hasTemplate && requestedNodeId ? getOperationalNode(hierarchy, requestedNodeId) : null;
@@ -81,7 +99,9 @@ export function buildPhysicalHierarchyNavigationView({ hierarchy, selectedNodeId
         backNodeId: selectedNode?.parentId || null,
         breadcrumb: selectedNode?.path.map((part) => part.name).join(" / ") || "",
         listedNodes,
-        guidance: buildNavigationGuidance(hasTemplate, selectedNode, listedNodes)
+        roundViewModel,
+        roundLocationById: new Map((roundViewModel?.locations || []).map((location) => [location.locationId, location])),
+        guidance: buildNavigationGuidance(hasTemplate, selectedNode, listedNodes, Boolean(roundViewModel))
     };
 }
 
@@ -98,20 +118,33 @@ function renderNodeMetadata(node) {
     return metadata.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
 }
 
-function getNodeActionLabel(node, action) {
+function getNodeActionLabel(node, action, roundLocation, hasActiveRound) {
     if (action === "navigate") {
         return "Abrir local";
     }
 
     if (action === "count") {
-        return node.openSession ? "Retomar contagem" : "Iniciar contagem";
+        if (roundLocation?.cta === "review") return "Revisar lançamentos";
+        return roundLocation?.sessionId ? "Retomar contagem" : "Iniciar contagem";
     }
 
-    return "Sem itens configurados";
+    return hasActiveRound ? "Fora do plano ou requer atenção" : "Inicie uma contagem";
 }
 
-function renderNodeCard(node) {
-    const action = resolvePhysicalHierarchyNodeAction(node);
+function formatRoundLocationState(roundLocation) {
+    const labels = {
+        not_started: "Não iniciado",
+        in_progress: "Em andamento",
+        filled: "Preenchido",
+        attention: "Atenção"
+    };
+    return roundLocation ? labels[roundLocation.operationalState] || "Atenção" : "Estrutural";
+}
+
+function renderNodeCard(node, view) {
+    const roundLocation = view.roundLocationById.get(node.id) || null;
+    const hasActiveRound = Boolean(view.roundViewModel);
+    const action = resolvePhysicalHierarchyNodeAction(node, { roundLocation, hasActiveRound });
     const actionAttribute = action === "navigate"
         ? `data-open-hierarchy-node="${escapeHtml(node.id)}"`
         : `data-open-location-counting="${escapeHtml(node.id)}"`;
@@ -120,7 +153,8 @@ function renderNodeCard(node) {
     return `
         <button type="button" class="physical-location-card" ${action === "empty" ? "" : actionAttribute} ${disabled}>
             <strong>${escapeHtml(node.name)}</strong>
-            <span class="physical-location-action">${escapeHtml(getNodeActionLabel(node, action))}</span>
+            <span class="physical-location-action">${escapeHtml(getNodeActionLabel(node, action, roundLocation, hasActiveRound))}</span>
+            ${hasActiveRound ? `<span class="count-round-location-state">${escapeHtml(formatRoundLocationState(roundLocation))}</span>` : ""}
             <span class="physical-location-type">${escapeHtml(locationTypeLabels[node.type] || "Local")}</span>
             <span class="physical-location-metadata">${renderNodeMetadata(node)}</span>
         </button>
@@ -129,13 +163,13 @@ function renderNodeCard(node) {
 
 function renderEmptyList(view) {
     if (view.listedNodes.length > 0) {
-        return view.listedNodes.map(renderNodeCard).join("");
+        return view.listedNodes.map((node) => renderNodeCard(node, view)).join("");
     }
 
     return `<p class="physical-hierarchy-empty">${escapeHtml(view.guidance)}</p>`;
 }
 
-function renderDirectItemsPanel(selectedNode) {
+function renderDirectItemsPanel(selectedNode, view) {
     const panel = getElement("physical-hierarchy-direct-items");
     const count = getElement("physical-hierarchy-direct-count");
     const button = getElement("btn-count-physical-location");
@@ -145,24 +179,26 @@ function renderDirectItemsPanel(selectedNode) {
         return;
     }
 
-    const countingMode = resolvePhysicalHierarchyCountingMode(selectedNode);
-    if (selectedNode.hasDirectItems) {
+    const roundLocation = view.roundLocationById.get(selectedNode.id) || null;
+    const hasActiveRound = Boolean(view.roundViewModel);
+    const countingMode = resolvePhysicalHierarchyCountingMode(selectedNode, { roundLocation, hasActiveRound });
+    if (!hasActiveRound) {
+        count.textContent = "Inicie uma contagem para lançar os itens deste local.";
+    } else if (roundLocation) {
         count.textContent = pluralize(
-            selectedNode.directLinkCount,
-            "item vinculado diretamente.",
-            "itens vinculados diretamente."
+            roundLocation.totalPlannedItems,
+            "item planejado neste local.",
+            "itens planejados neste local."
         );
-    } else if (countingMode === "resume") {
-        count.textContent = "A sessão aberta preserva os itens planejados anteriormente.";
     } else {
-        count.textContent = "Nenhum item está vinculado diretamente a este local.";
+        count.textContent = "Este local é somente estrutural nesta rodada.";
     }
 
     button.hidden = countingMode === "blocked";
     button.dataset.openLocationCounting = countingMode === "blocked" ? "" : selectedNode.id;
-    button.textContent = countingMode === "resume"
-        ? "Retomar contagem deste local"
-        : "Iniciar contagem deste local";
+    button.textContent = roundLocation?.cta === "review"
+        ? "Revisar lançamentos deste local"
+        : countingMode === "resume" ? "Retomar contagem deste local" : "Iniciar contagem deste local";
 }
 
 function renderActiveTemplate(view) {
@@ -186,7 +222,7 @@ export function renderPhysicalHierarchyNavigation(options = {}) {
     backButton.hidden = !view.selectedNode;
     breadcrumb.hidden = !view.selectedNode;
     breadcrumb.textContent = view.breadcrumb;
-    renderDirectItemsPanel(view.selectedNode);
+    renderDirectItemsPanel(view.selectedNode, view);
     return view;
 }
 

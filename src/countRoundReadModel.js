@@ -1,6 +1,6 @@
 import { assertValidCountRoundCollection } from "./countRounds.js";
 import { normalizeLocationCountEntries } from "./locationCountEntries.js";
-import { normalizeLocationCountSessions } from "./locationCountSessions.js";
+import { normalizeLocationCountSessions, normalizePlannedItems } from "./locationCountSessions.js";
 
 function normalizeText(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ");
@@ -44,10 +44,16 @@ function resolveSession(location, round, sessionIndex) {
     }
 
     const session = sessionIndex.sessionsById.get(location.sessionId);
+    const hasMatchingPlan = session && JSON.stringify(normalizePlannedItems(session.plannedItems))
+        === JSON.stringify(normalizePlannedItems(location.plannedItems));
     const isInvalid = sessionIndex.duplicateSessionIds.has(location.sessionId)
         || !session
         || session.templateId !== round.templateId
+        || session.templateNameSnapshot !== round.templateNameSnapshot
         || session.locationId !== location.locationId
+        || session.locationPathSnapshot.join("|") !== location.locationPathSnapshot.join("|")
+        || session.reportAreaSnapshot !== location.reportAreaSnapshot
+        || !hasMatchingPlan
         || !["draft", "in_progress"].includes(session.status);
 
     return isInvalid
@@ -85,7 +91,8 @@ function deriveLocationState(location, round, sessionIndex, entries) {
             attentionReason: relation.error,
             totalPlannedItems,
             coveredPlannedItemCount: 0,
-            activeEntryCount: 0
+            activeEntryCount: 0,
+            cta: "attention"
         };
     }
 
@@ -96,7 +103,8 @@ function deriveLocationState(location, round, sessionIndex, entries) {
             attentionReason: "",
             totalPlannedItems,
             coveredPlannedItemCount: 0,
-            activeEntryCount: 0
+            activeEntryCount: 0,
+            cta: "start"
         };
     }
 
@@ -108,7 +116,8 @@ function deriveLocationState(location, round, sessionIndex, entries) {
             attentionReason: "A sessão possui lançamentos fora do plano congelado.",
             totalPlannedItems,
             coveredPlannedItemCount: coverage.coveredLinkIds.size,
-            activeEntryCount: coverage.activeEntryCount
+            activeEntryCount: coverage.activeEntryCount,
+            cta: "attention"
         };
     }
 
@@ -122,7 +131,8 @@ function deriveLocationState(location, round, sessionIndex, entries) {
         attentionReason: "",
         totalPlannedItems,
         coveredPlannedItemCount: coverage.coveredLinkIds.size,
-        activeEntryCount: coverage.activeEntryCount
+        activeEntryCount: coverage.activeEntryCount,
+        cta: operationalState === "filled" ? "review" : "resume"
     };
 }
 
@@ -130,14 +140,26 @@ function summarizeLocations(locations) {
     const countState = (state) => locations.filter((location) => location.operationalState === state).length;
     const totalLocations = locations.length;
 
+    const totalPlannedOccurrences = locations.reduce((total, location) => total + location.totalPlannedItems, 0);
+    const coveredPlannedOccurrences = locations.reduce(
+        (total, location) => total + location.coveredPlannedItemCount,
+        0
+    );
+
     return {
         totalLocations,
         notStartedLocations: countState("not_started"),
         inProgressLocations: countState("in_progress"),
         filledLocations: countState("filled"),
         attentionLocations: countState("attention"),
-        totalPlannedItems: locations.reduce((total, location) => total + location.totalPlannedItems, 0),
-        coveredPlannedItems: locations.reduce((total, location) => total + location.coveredPlannedItemCount, 0),
+        totalPlannedOccurrences,
+        coveredPlannedOccurrences,
+        percent: totalPlannedOccurrences > 0
+            ? Math.round((coveredPlannedOccurrences / totalPlannedOccurrences) * 100)
+            : 0,
+        // Os aliases preservam consumidores da 4B enquanto a UI migra para a semântica de ocorrências.
+        totalPlannedItems: totalPlannedOccurrences,
+        coveredPlannedItems: coveredPlannedOccurrences,
         activeEntryCount: locations.reduce((total, location) => total + location.activeEntryCount, 0),
         filledPercent: totalLocations > 0 ? Math.round((countState("filled") / totalLocations) * 100) : 0
     };

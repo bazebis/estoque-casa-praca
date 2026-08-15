@@ -2,9 +2,15 @@ import { normalizeCountTemplate } from "./countTemplates.js";
 import {
     buildPlannedItemsForLocation,
     collectPlannedItemErrors,
+    createLocationCountSessionDraftFromPlanModel,
+    normalizeLocationCountSession,
     normalizeLocationCountSessions,
     normalizePlannedItems
 } from "./locationCountSessions.js";
+import {
+    normalizeLocationCountEntries,
+    validateLocationCountEntry
+} from "./locationCountEntries.js";
 import { normalizeLocationNodes } from "./locationNodes.js";
 import { buildOperationalHierarchy, getOperationalRoots } from "./physicalHierarchyReadModel.js";
 
@@ -161,6 +167,7 @@ function collectRoundLocationsErrors(candidate, sourceRound) {
     const errors = [];
     const locationIds = new Set();
     const presentationOrders = new Set();
+    const sessionIds = new Set();
     const sourceLocations = Array.isArray(sourceRound?.locations) ? sourceRound.locations : [];
 
     if (!candidate || candidate.locations.length === 0) {
@@ -173,6 +180,10 @@ function collectRoundLocationsErrors(candidate, sourceRound) {
             normalizeText(item?.locationId) === location.locationId
         ));
         errors.push(...collectRoundLocationErrors(location, sourceLocation, locationIds, presentationOrders));
+        if (location.sessionId && sessionIds.has(location.sessionId)) {
+            errors.push("Uma sessão não pode estar vinculada a mais de um local da rodada.");
+        }
+        if (location.sessionId) sessionIds.add(location.sessionId);
     });
     const sortedOrders = [...presentationOrders].sort((firstOrder, secondOrder) => firstOrder - secondOrder);
     if (sortedOrders.some((order, index) => order !== index)) {
@@ -180,6 +191,387 @@ function collectRoundLocationsErrors(candidate, sourceRound) {
     }
 
     return errors;
+}
+
+function arePlannedItemsEqual(firstItems, secondItems) {
+    return JSON.stringify(normalizePlannedItems(firstItems)) === JSON.stringify(normalizePlannedItems(secondItems));
+}
+
+function createFrozenRoundSignature(round) {
+    return JSON.stringify({
+        id: round.id,
+        templateId: round.templateId,
+        templateNameSnapshot: round.templateNameSnapshot,
+        status: round.status,
+        activeTemplateId: round.activeTemplateId,
+        createdAt: round.createdAt,
+        locations: round.locations.map(({ sessionId, ...location }) => location)
+    });
+}
+
+function indexSessionsFailClosed(sessions, sourceLabel) {
+    const normalizedSessions = normalizeLocationCountSessions(sessions);
+    const sessionsById = new Map();
+    normalizedSessions.forEach((session) => {
+        if (sessionsById.has(session.id)) {
+            throw new CountRoundError(`Existem sessões repetidas no ${sourceLabel}.`, "duplicate-session-record");
+        }
+        sessionsById.set(session.id, session);
+    });
+    return sessionsById;
+}
+
+function indexEntriesFailClosed(entries, sourceLabel) {
+    const normalizedEntries = normalizeLocationCountEntries(entries);
+    const entriesById = new Map();
+    normalizedEntries.forEach((entry) => {
+        if (entriesById.has(entry.id)) {
+            throw new CountRoundError(`Existem entradas repetidas no ${sourceLabel}.`, "duplicate-entry-record");
+        }
+        entriesById.set(entry.id, entry);
+    });
+    return entriesById;
+}
+
+function createSessionIdentitySignature(session) {
+    const { status, updatedAt, startedAt, ...identity } = session;
+    return JSON.stringify(identity);
+}
+
+function reconcileOpenSessionCopies(localSession, storedSession) {
+    if (!localSession) return storedSession;
+    if (!storedSession) return localSession;
+    if (createSessionIdentitySignature(localSession) !== createSessionIdentitySignature(storedSession)) {
+        throw new CountRoundError(
+            "A sessão local conflita com o registro de mesmo ID no IndexedDB.",
+            "fallback-session-conflict"
+        );
+    }
+    if (localSession.status === storedSession.status) {
+        if (localSession.startedAt !== storedSession.startedAt) {
+            throw new CountRoundError("A sessão possui inícios incompatíveis.", "fallback-session-conflict");
+        }
+        return storedSession;
+    }
+    if (storedSession.status === "draft" && localSession.status === "in_progress") return localSession;
+    if (storedSession.status === "in_progress" && localSession.status === "draft") return storedSession;
+    throw new CountRoundError("A sessão possui estados incompatíveis.", "fallback-session-conflict");
+}
+
+function assertSessionMatchesRoundLocation(session, round, location) {
+    const normalizedSession = normalizeLocationCountSession(session);
+    const hasValidLifecycle = normalizedSession?.status === "draft"
+        ? !normalizedSession.startedAt
+        : Boolean(normalizedSession?.startedAt);
+    const matches = normalizedSession
+        && normalizedSession.id === location.sessionId
+        && normalizedSession.templateId === round.templateId
+        && normalizedSession.templateNameSnapshot === round.templateNameSnapshot
+        && normalizedSession.locationId === location.locationId
+        && normalizedSession.locationPathSnapshot.join("|") === location.locationPathSnapshot.join("|")
+        && normalizedSession.reportAreaSnapshot === location.reportAreaSnapshot
+        && ["draft", "in_progress"].includes(normalizedSession.status)
+        && hasValidLifecycle
+        && !normalizedSession.finishedAt
+        && !normalizedSession.canceledAt
+        && normalizedSession.plannedItemCount === location.plannedItems.length
+        && normalizedSession.activeLinkCountSnapshot === location.plannedItems.length
+        && arePlannedItemsEqual(normalizedSession.plannedItems, location.plannedItems);
+
+    if (!matches) {
+        throw new CountRoundError(
+            "A sessão vinculada não corresponde ao plano congelado deste local.",
+            "invalid-round-session-relation"
+        );
+    }
+    return normalizedSession;
+}
+
+export function buildCountRoundLocationSessionMutation({ round, locationId, existingSession = null } = {}) {
+    const normalizedRound = assertValidCountRoundCollection([round])[0];
+    const normalizedLocationId = normalizeText(locationId);
+    if (normalizedRound.status !== "active") {
+        throw new CountRoundError("Esta rodada não está mais ativa.", "round-not-active");
+    }
+
+    const location = normalizedRound.locations.find((item) => item.locationId === normalizedLocationId);
+    if (!location) {
+        throw new CountRoundError("Este local não pertence ao plano congelado da rodada.", "location-outside-round");
+    }
+    if (location.sessionId) {
+        return {
+            round: normalizedRound,
+            session: assertSessionMatchesRoundLocation(existingSession, normalizedRound, location),
+            created: false
+        };
+    }
+    if (existingSession) {
+        throw new CountRoundError("A relação da rodada com a sessão está ambígua.", "ambiguous-round-session");
+    }
+
+    const timestamp = new Date().toISOString();
+    const session = createLocationCountSessionDraftFromPlanModel({
+        templateId: normalizedRound.templateId,
+        templateNameSnapshot: normalizedRound.templateNameSnapshot,
+        locationId: location.locationId,
+        locationPathSnapshot: location.locationPathSnapshot,
+        reportAreaSnapshot: location.reportAreaSnapshot,
+        plannedItems: location.plannedItems,
+        notes: "Criada pela rodada de contagem.",
+        timestamp
+    });
+    const nextRound = validateCountRound({
+        ...normalizedRound,
+        locations: normalizedRound.locations.map((item) => (
+            item.locationId === location.locationId ? { ...item, sessionId: session.id } : item
+        )),
+        updatedAt: timestamp
+    });
+    if (!nextRound.isValid) throw new CountRoundError(nextRound.error);
+    return { round: nextRound.round, session, created: true };
+}
+
+function getRequiredMappedSession(sessionId, sessionIndex, missingMessage, errorCode) {
+    if (!sessionId) return null;
+    const session = sessionIndex.get(sessionId);
+    if (!session) throw new CountRoundError(missingMessage, errorCode);
+    return session;
+}
+
+function rememberRecord(recordsById, record, conflictMessage, errorCode) {
+    if (!record) return;
+    const existing = recordsById.get(record.id);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(record)) {
+        throw new CountRoundError(conflictMessage, errorCode);
+    }
+    recordsById.set(record.id, record);
+}
+
+function reconcileRoundLocation({ localLocation, storedLocation, localRound, storedRound, context }) {
+    const localSessionId = localLocation?.sessionId || null;
+    const storedSessionId = storedLocation?.sessionId || null;
+    if (localSessionId && storedSessionId && localSessionId !== storedSessionId) {
+        throw new CountRoundError(
+            "O local possui sessions diferentes no mirror e no IndexedDB.",
+            "fallback-mapping-conflict"
+        );
+    }
+    const sessionId = storedSessionId || localSessionId;
+    const baseLocation = storedLocation || localLocation;
+    if (!sessionId) return { location: baseLocation, session: null };
+
+    const localSession = localSessionId
+        ? getRequiredMappedSession(
+            localSessionId,
+            context.sessionIndexes.local,
+            "O mapping local aponta para uma sessão ausente.",
+            "missing-fallback-session"
+        )
+        : context.sessionIndexes.local.get(sessionId) || null;
+    const storedSession = storedSessionId
+        ? getRequiredMappedSession(
+            storedSessionId,
+            context.sessionIndexes.stored,
+            "O mapping do IndexedDB aponta para uma sessão ausente.",
+            "missing-indexeddb-session"
+        )
+        : context.sessionIndexes.stored.get(sessionId) || null;
+    const relationLocation = { ...baseLocation, sessionId };
+    const relationRound = { ...(storedRound || localRound), locations: [relationLocation] };
+    const validLocalSession = localSession
+        ? assertSessionMatchesRoundLocation(localSession, relationRound, relationLocation)
+        : null;
+    const validStoredSession = storedSession
+        ? assertSessionMatchesRoundLocation(storedSession, relationRound, relationLocation)
+        : null;
+    const session = reconcileOpenSessionCopies(validLocalSession, validStoredSession);
+
+    if (!storedSession) context.sessionsToAdd.set(session.id, session);
+    else if (JSON.stringify(session) !== JSON.stringify(storedSession)) context.sessionsToPut.set(session.id, session);
+    rememberRecord(
+        context.authoritativeSessions,
+        session,
+        "Uma sessão foi reconciliada de formas incompatíveis.",
+        "fallback-session-conflict"
+    );
+    return { location: { ...baseLocation, sessionId }, session };
+}
+
+function reconcileActiveRound(localRound, storedRound, context) {
+    if (localRound && storedRound
+        && createFrozenRoundSignature(localRound) !== createFrozenRoundSignature(storedRound)) {
+        throw new CountRoundError(
+            "A rodada local conflita com o escopo congelado no IndexedDB.",
+            "fallback-round-conflict"
+        );
+    }
+    const baseRound = storedRound || localRound;
+    const localLocationsById = new Map((localRound?.locations || []).map((location) => [location.locationId, location]));
+    const storedLocationsById = new Map((storedRound?.locations || []).map((location) => [location.locationId, location]));
+    const results = baseRound.locations.map((baseLocation) => reconcileRoundLocation({
+        localLocation: localLocationsById.get(baseLocation.locationId) || null,
+        storedLocation: storedLocationsById.get(baseLocation.locationId) || null,
+        localRound,
+        storedRound,
+        context
+    }));
+    const locations = results.map((result) => result.location);
+    const addedMapping = locations.some((location, index) => (
+        location.sessionId && !baseRound.locations[index].sessionId
+    ));
+    const candidate = validateCountRound({
+        ...baseRound,
+        locations,
+        updatedAt: !storedRound || addedMapping ? localRound?.updatedAt || baseRound.updatedAt : baseRound.updatedAt
+    });
+    if (!candidate.isValid) throw new CountRoundError(candidate.error);
+    return candidate.round;
+}
+
+function createEntryIdentitySignature(entry) {
+    const { active, updatedAt, removedAt, ...identity } = entry;
+    return JSON.stringify(identity);
+}
+
+function assertEntryMatchesSession(entry, session) {
+    const validation = validateLocationCountEntry(entry);
+    if (!validation.isValid) throw new CountRoundError(validation.error, "invalid-fallback-entry");
+    const candidate = validation.entry;
+    const plannedItem = session.plannedItems.find((item) => (
+        item.linkId === candidate.linkId && item.itemCode === candidate.itemCode
+    ));
+    const matches = plannedItem
+        && candidate.sessionId === session.id
+        && candidate.templateId === session.templateId
+        && candidate.locationId === session.locationId
+        && candidate.itemNameSnapshot === plannedItem.itemNameSnapshot
+        && candidate.groupId === plannedItem.groupId
+        && candidate.groupNameSnapshot === plannedItem.groupNameSnapshot
+        && candidate.reportAreaSnapshot === session.reportAreaSnapshot;
+    if (!matches) {
+        throw new CountRoundError(
+            "A entrada local não corresponde ao item planejado da sessão.",
+            "invalid-fallback-entry-relation"
+        );
+    }
+    return candidate;
+}
+
+function reconcileEntryCopies(localEntry, storedEntry, session) {
+    const validLocalEntry = localEntry ? assertEntryMatchesSession(localEntry, session) : null;
+    const validStoredEntry = storedEntry ? assertEntryMatchesSession(storedEntry, session) : null;
+    if (!validLocalEntry) return validStoredEntry;
+    if (!validStoredEntry) return validLocalEntry;
+    if (createEntryIdentitySignature(validLocalEntry) !== createEntryIdentitySignature(validStoredEntry)) {
+        throw new CountRoundError(
+            "A entrada local conflita com o registro de mesmo ID no IndexedDB.",
+            "fallback-entry-conflict"
+        );
+    }
+    if (!validStoredEntry.active) return validStoredEntry;
+    if (!validLocalEntry.active) return validLocalEntry;
+    return validStoredEntry;
+}
+
+function reconcileSessionEntries(session, context) {
+    const entryIds = new Set();
+    context.entryIndexes.local.forEach((entry) => {
+        if (entry.sessionId === session.id) entryIds.add(entry.id);
+    });
+    context.entryIndexes.stored.forEach((entry) => {
+        if (entry.sessionId === session.id) entryIds.add(entry.id);
+    });
+
+    entryIds.forEach((entryId) => {
+        const localEntry = context.entryIndexes.local.get(entryId) || null;
+        const storedEntry = context.entryIndexes.stored.get(entryId) || null;
+        if (localEntry && !context.sessionIndexes.local.has(session.id)) {
+            throw new CountRoundError(
+                "Uma entrada local aponta para uma sessão ausente no mirror.",
+                "missing-fallback-session-for-entry"
+            );
+        }
+        const entry = reconcileEntryCopies(localEntry, storedEntry, session);
+        if (!storedEntry) context.entriesToAdd.set(entry.id, entry);
+        else if (JSON.stringify(entry) !== JSON.stringify(storedEntry)) context.entriesToPut.set(entry.id, entry);
+        rememberRecord(
+            context.authoritativeEntries,
+            entry,
+            "Uma entrada foi reconciliada de formas incompatíveis.",
+            "fallback-entry-conflict"
+        );
+    });
+}
+
+function createFallbackReconciliationContext({ localSessions, indexedDbSessions, localEntries, indexedDbEntries }) {
+    return {
+        sessionIndexes: {
+            local: indexSessionsFailClosed(localSessions, "mirror local"),
+            stored: indexSessionsFailClosed(indexedDbSessions, "IndexedDB")
+        },
+        entryIndexes: {
+            local: indexEntriesFailClosed(localEntries, "mirror local"),
+            stored: indexEntriesFailClosed(indexedDbEntries, "IndexedDB")
+        },
+        sessionsToAdd: new Map(),
+        sessionsToPut: new Map(),
+        entriesToAdd: new Map(),
+        entriesToPut: new Map(),
+        authoritativeSessions: new Map(),
+        authoritativeEntries: new Map()
+    };
+}
+
+export function buildCountRoundFallbackReconciliationPlan({
+    localRounds = [],
+    indexedDbRounds = [],
+    localSessions = [],
+    indexedDbSessions = [],
+    localEntries = [],
+    indexedDbEntries = []
+} = {}) {
+    const normalizedLocalRounds = assertValidCountRoundCollection(localRounds);
+    const normalizedStoredRounds = assertValidCountRoundCollection(indexedDbRounds);
+    const localRoundsById = new Map(normalizedLocalRounds.map((round) => [round.id, round]));
+    const storedRoundsById = new Map(normalizedStoredRounds.map((round) => [round.id, round]));
+    const context = createFallbackReconciliationContext({
+        localSessions,
+        indexedDbSessions,
+        localEntries,
+        indexedDbEntries
+    });
+    const roundsToPut = [];
+    const authoritativeRounds = new Map();
+    const activeRoundIds = new Set([
+        ...normalizedLocalRounds.filter((round) => round.status === "active").map((round) => round.id),
+        ...normalizedStoredRounds.filter((round) => round.status === "active").map((round) => round.id)
+    ]);
+
+    activeRoundIds.forEach((roundId) => {
+        const localRound = localRoundsById.get(roundId) || null;
+        const storedRound = storedRoundsById.get(roundId) || null;
+        const reconciledRound = reconcileActiveRound(localRound, storedRound, context);
+        if (!storedRound || JSON.stringify(reconciledRound) !== JSON.stringify(storedRound)) {
+            roundsToPut.push(reconciledRound);
+        }
+        authoritativeRounds.set(reconciledRound.id, reconciledRound);
+    });
+    context.authoritativeSessions.forEach((session) => reconcileSessionEntries(session, context));
+    assertValidCountRoundCollection([
+        ...normalizedStoredRounds.filter((round) => !roundsToPut.some((candidate) => candidate.id === round.id)),
+        ...roundsToPut
+    ]);
+
+    return {
+        roundsToPut,
+        sessionsToAdd: [...context.sessionsToAdd.values()],
+        sessionsToPut: [...context.sessionsToPut.values()],
+        entriesToAdd: [...context.entriesToAdd.values()],
+        entriesToPut: [...context.entriesToPut.values()],
+        mirrorRounds: [...authoritativeRounds.values()],
+        mirrorSessions: [...context.authoritativeSessions.values()],
+        mirrorEntries: [...context.authoritativeEntries.values()]
+    };
 }
 
 export function validateCountRound(round) {

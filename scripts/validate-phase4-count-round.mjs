@@ -557,10 +557,12 @@ await runTest("lifecycle atual de session permanece imediato e separado", () => 
     assert.doesNotMatch(sessionSource, /countRound|sessionId: null/);
 });
 
-await runTest("nenhuma UI de round foi introduzida", () => {
+await runTest("UI 4C não introduz fechamento, skip ou zero na fundação", () => {
     const mainSource = readSource("src/main.js");
     const indexSource = readSource("index.html");
-    assert.doesNotMatch(`${mainSource}\n${indexSource}`, /CountRound|countRound|count-round/);
+    const roundUiSource = readSource("src/countRoundUi.js");
+    assert.match(`${mainSource}\n${indexSource}`, /countRound|count-round/);
+    assert.doesNotMatch(roundUiSource, /skippedAt|completion_zero|Concluir local|Finalizar contagem/);
 });
 
 assert.ok(executedTestCount >= 40);

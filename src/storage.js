@@ -34,6 +34,8 @@ import {
 } from "./locationCountSessions.js";
 import {
     assertValidCountRoundCollection,
+    buildCountRoundFallbackReconciliationPlan,
+    buildCountRoundLocationSessionMutation,
     CountRoundError,
     createCountRoundModel
 } from "./countRounds.js";
@@ -58,8 +60,10 @@ import {
     getAllFromStore,
     getFromStore,
     isIndexedDBAvailable,
+    mutateCountRoundLocationSession,
     openDatabase,
     putInStore,
+    reconcileCountRoundFallbackMappings,
     replaceStore,
     replaceStoresAtomically,
     storeNames
@@ -394,6 +398,34 @@ function saveLocalCountRound(round) {
     return nextRounds.find((item) => item.id === round.id);
 }
 
+function restoreLocalRoundSessionSnapshot(snapshot) {
+    snapshot.forEach(({ key, value }) => {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+    });
+}
+
+function commitLocalRoundSessionPair(round, session) {
+    const snapshot = [countRoundsStorageKey, locationCountSessionsStorageKey].map((key) => ({
+        key,
+        value: localStorage.getItem(key)
+    }));
+
+    try {
+        const sessions = loadLocalLocationCountSessions().filter((item) => item.id !== session.id);
+        writeJson(locationCountSessionsStorageKey, sortLocationCountSessions([...sessions, session]));
+        const rounds = loadLocalCountRounds().filter((item) => item.id !== round.id);
+        writeJson(countRoundsStorageKey, sortCountRounds([...rounds, round]));
+    } catch (writeError) {
+        try {
+            restoreLocalRoundSessionSnapshot(snapshot);
+        } catch (rollbackError) {
+            throw new Error(`A vinculação falhou e o rollback local também falhou: ${rollbackError.message}`);
+        }
+        throw writeError;
+    }
+}
+
 function sortLocationCountEntries(entries) {
     return normalizeLocationCountEntries(entries).sort((firstEntry, secondEntry) => (
         new Date(firstEntry.createdAt) - new Date(secondEntry.createdAt)
@@ -410,6 +442,33 @@ function saveLocalLocationCountEntry(entry) {
     const entries = loadLocalLocationCountEntries().filter((item) => item.id !== entry.id);
     writeJson(locationCountEntriesStorageKey, sortLocationCountEntries([...entries, entry]));
     return entry;
+}
+
+function mergeRecordsById(currentRecords, authoritativeRecords) {
+    const recordsById = new Map(currentRecords.map((record) => [record.id, record]));
+    authoritativeRecords.forEach((record) => recordsById.set(record.id, record));
+    return [...recordsById.values()];
+}
+
+function commitLocalCountRoundReconciliationMirror(plan) {
+    const storageKeys = [
+        countRoundsStorageKey,
+        locationCountSessionsStorageKey,
+        locationCountEntriesStorageKey
+    ];
+    const snapshot = storageKeys.map((key) => ({ key, value: localStorage.getItem(key) }));
+
+    try {
+        const rounds = mergeRecordsById(loadLocalCountRounds(), plan.mirrorRounds);
+        const sessions = mergeRecordsById(loadLocalLocationCountSessions(), plan.mirrorSessions);
+        const entries = mergeRecordsById(loadLocalLocationCountEntries(), plan.mirrorEntries);
+        writeJson(countRoundsStorageKey, sortCountRounds(rounds));
+        writeJson(locationCountSessionsStorageKey, sortLocationCountSessions(sessions));
+        writeJson(locationCountEntriesStorageKey, sortLocationCountEntries(entries));
+    } catch (mirrorError) {
+        restoreLocalRoundSessionSnapshot(snapshot);
+        throw mirrorError;
+    }
 }
 
 function saveLocalCatalogBackupBeforeImport(items) {
@@ -611,6 +670,33 @@ async function migrateCountRoundsToIndexedDB() {
     return missingRounds.length > 0;
 }
 
+async function reconcileLocalCountRoundMappingsToIndexedDB() {
+    const localRounds = loadLocalCountRounds();
+    const plan = await reconcileCountRoundFallbackMappings({
+        localRounds,
+        localSessions: loadLocalLocationCountSessions(),
+        localEntries: loadLocalLocationCountEntries(),
+        buildPlan: buildCountRoundFallbackReconciliationPlan
+    });
+    let mirrorSynchronized = true;
+    if (plan.mirrorRounds.length > 0) {
+        try {
+            commitLocalCountRoundReconciliationMirror(plan);
+        } catch (mirrorError) {
+            // O IndexedDB já confirmou a transação; o mirror é best effort e não pode fingir rollback primário.
+            mirrorSynchronized = false;
+            storageWarning = "A contagem está segura no IndexedDB, mas o espelho local não pôde ser atualizado.";
+            console.warn(storageWarning, mirrorError);
+        }
+    }
+    const changed = plan.roundsToPut.length > 0
+        || plan.sessionsToAdd.length > 0
+        || plan.sessionsToPut.length > 0
+        || plan.entriesToAdd.length > 0
+        || plan.entriesToPut.length > 0;
+    return { changed, mirrorSynchronized };
+}
+
 async function runWithFallback(dbOperation, fallbackOperation) {
     if (!shouldUseIndexedDB) {
         return fallbackOperation();
@@ -645,8 +731,13 @@ export async function initializeStorage() {
         const wereCountTemplatesMigrated = await migrateCountTemplatesToIndexedDB();
         const wereLocationNodesMigrated = await migrateLocationNodesToIndexedDB();
         const wereItemLocationLinksMigrated = await migrateItemLocationLinksToIndexedDB();
-        const wereLocationCountSessionsMigrated = await migrateLocationCountSessionsToIndexedDB();
-        const wereLocationCountEntriesMigrated = await migrateLocationCountEntriesToIndexedDB();
+        const countRoundReconciliation = await reconcileLocalCountRoundMappingsToIndexedDB();
+        const wereLocationCountSessionsMigrated = countRoundReconciliation.mirrorSynchronized
+            ? await migrateLocationCountSessionsToIndexedDB()
+            : false;
+        const wereLocationCountEntriesMigrated = countRoundReconciliation.mirrorSynchronized
+            ? await migrateLocationCountEntriesToIndexedDB()
+            : false;
         const wereCountRoundsMigrated = await migrateCountRoundsToIndexedDB();
         isStorageInitialized = true;
         return {
@@ -657,9 +748,11 @@ export async function initializeStorage() {
                 || wereItemLocationLinksMigrated
                 || wereLocationCountSessionsMigrated
                 || wereLocationCountEntriesMigrated
+                || countRoundReconciliation.changed
                 || wereCountRoundsMigrated
         };
     } catch (error) {
+        if (error instanceof CountRoundError) throw error;
         shouldUseIndexedDB = false;
         storageWarning = "O armazenamento principal falhou. Os dados continuarão sendo salvos neste navegador pelo modo alternativo.";
         isStorageInitialized = true;
@@ -879,17 +972,29 @@ function findChangedProfiles(currentSettings, nextSettings) {
 
 const activeEntryProfileMutationMessage = "Este item já possui lançamentos em uma contagem aberta. Remova os lançamentos ou finalize/cancele a contagem antes de alterar as unidades.";
 const plannedItemProfileMutationMessage = "Este item está planejado em uma contagem aberta, mesmo sem lançamento. Finalize ou cancele a contagem antes de alterar as unidades.";
+const activeRoundProfileMutationMessage = "Este item faz parte de uma contagem em andamento. Finalize a contagem antes de alterar suas unidades.";
 
 export function getItemUnitProfileMutationBlockReason({
     templateId,
     itemCode,
     sessions = [],
     entries = [],
+    rounds = [],
     includePlannedItems = false
 } = {}) {
     const normalizedTemplateId = String(templateId || "").trim();
     const normalizedItemCode = String(itemCode || "").trim();
     const normalizedSessions = normalizeLocationCountSessions(sessions);
+    const isPlannedInActiveRound = listActiveCountRounds(rounds).some((round) => (
+        round.templateId === normalizedTemplateId
+        && round.locations.some((location) => location.plannedItems.some((item) => (
+            item.itemCode === normalizedItemCode
+        )))
+    ));
+
+    if (isPlannedInActiveRound) {
+        return { type: "active-round-item", message: activeRoundProfileMutationMessage };
+    }
 
     if (hasActiveEntriesForItemInOpenSessions({
         templateId: normalizedTemplateId,
@@ -912,8 +1017,7 @@ export function getItemUnitProfileMutationBlockReason({
         : null;
 }
 
-function assertBackupRestoreSessionsAreSafe(plan, sessions, entries) {
-    if (!plan.writeFields.includes("countTemplates")) return;
+function assertBackupRestoreSessionsAreSafe(plan, sessions, entries, rounds) {
     const changedTemplateIds = findChangedTemplateIds(
         plan.currentState.countTemplates,
         plan.nextState.countTemplates
@@ -923,6 +1027,12 @@ function assertBackupRestoreSessionsAreSafe(plan, sessions, entries) {
     ));
     if (hasRelatedOpenSession) {
         throw new Error("Este backup alteraria um template relacionado a uma sessão aberta. Finalize ou cancele essa contagem antes da restauração.");
+    }
+    const hasRelatedActiveRound = listActiveCountRounds(rounds).some((round) => (
+        changedTemplateIds.has(round.templateId)
+    ));
+    if (hasRelatedActiveRound) {
+        throw new Error("Este backup alteraria o template de uma contagem em andamento. Finalize a contagem antes da restauração.");
     }
 
     const changedProfiles = findChangedProfiles(
@@ -934,6 +1044,7 @@ function assertBackupRestoreSessionsAreSafe(plan, sessions, entries) {
         itemCode: setting.itemCode,
         sessions,
         entries,
+        rounds,
         includePlannedItems: true
     })).find(Boolean);
     if (blockReason) throw new Error(blockReason.message);
@@ -1025,22 +1136,28 @@ async function commitBackupRestorePlan(plan, backupRecord) {
 }
 
 async function restoreBackupStateSerialized(payload, mode) {
-    const [currentState, sessions, entries] = await Promise.all([
+    const [currentState, sessions, entries, rounds] = await Promise.all([
         loadBackupScopedState(),
         listLocationCountSessions(),
-        listLocationCountEntries()
+        listLocationCountEntries(),
+        listCountRounds()
     ]);
     const plan = buildBackupRestorePlan({ payload, currentState, mode });
     if (!plan.isValid) throw new Error(plan.error || "Backup inválido.");
     plan.currentState = currentState;
-    assertBackupRestoreSessionsAreSafe(plan, sessions, entries);
+    assertBackupRestoreSessionsAreSafe(plan, sessions, entries, rounds);
 
     // O segundo plano fica no limite da escrita e fecha corridas com outros writers da fila.
     const boundaryState = await loadBackupScopedState();
     const boundaryPlan = buildBackupRestorePlan({ payload, currentState: boundaryState, mode });
     if (!boundaryPlan.isValid) throw new Error(boundaryPlan.error || "Backup inválido.");
     boundaryPlan.currentState = boundaryState;
-    assertBackupRestoreSessionsAreSafe(boundaryPlan, await listLocationCountSessions(), await listLocationCountEntries());
+    assertBackupRestoreSessionsAreSafe(
+        boundaryPlan,
+        await listLocationCountSessions(),
+        await listLocationCountEntries(),
+        await listCountRounds()
+    );
     const backupRecord = createInternalBackupRecord(boundaryState);
     await commitBackupRestorePlan(boundaryPlan, backupRecord);
     return { mode, schemaVersion: boundaryPlan.backup.schemaVersion, state: boundaryPlan.nextState };
@@ -1070,12 +1187,23 @@ export async function getCountTemplate(templateId) {
     );
 }
 
+async function assertTemplateCanBeMutated(templateId) {
+    const normalizedTemplateId = String(templateId || "").trim();
+    const isLocked = listActiveCountRounds(await listCountRounds()).some((round) => (
+        round.templateId === normalizedTemplateId
+    ));
+    if (isLocked) {
+        throw new Error("Este template pertence a uma contagem em andamento e não pode ser alterado.");
+    }
+}
+
 export async function saveCountTemplate(template) {
     const normalizedTemplate = normalizeCountTemplate(template);
 
     if (!normalizedTemplate) {
         throw new Error("Template de contagem inválido.");
     }
+    await assertTemplateCanBeMutated(normalizedTemplate.id);
 
     await runWithFallback(
         () => putInStore(storeNames.countTemplates, normalizedTemplate),
@@ -1092,6 +1220,7 @@ async function deleteCountTemplateSerialized(templateId) {
     if (!normalizedId) {
         return;
     }
+    await assertTemplateCanBeMutated(normalizedId);
 
     const [settings, links, sessions, entries] = await Promise.all([
         listItemUnitSettings(),
@@ -1143,7 +1272,36 @@ export async function getLocationNode(locationId) {
     );
 }
 
+function collectActiveRoundNodeIds(rounds, nodes) {
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const relatedIds = new Set();
+
+    listActiveCountRounds(rounds).forEach((round) => {
+        round.locations.forEach((location) => {
+            let currentId = location.locationId;
+            while (currentId && !relatedIds.has(currentId)) {
+                relatedIds.add(currentId);
+                currentId = nodeById.get(currentId)?.parentId || null;
+            }
+        });
+    });
+    return relatedIds;
+}
+
+async function assertLocationNodeCanBeMutated(nodeId, candidateParentId = null) {
+    const [rounds, nodes] = await Promise.all([listCountRounds(), listLocationNodes()]);
+    const relatedIds = collectActiveRoundNodeIds(rounds, nodes);
+    const existingParentId = nodes.find((node) => node.id === nodeId)?.parentId || null;
+    if (relatedIds.has(nodeId) || relatedIds.has(existingParentId) || relatedIds.has(candidateParentId)) {
+        throw new Error("A estrutura desta contagem está congelada enquanto a contagem estiver em andamento.");
+    }
+}
+
 export async function saveLocationNode(node) {
+    await assertLocationNodeCanBeMutated(
+        String(node?.id || "").trim(),
+        String(node?.parentId || "").trim() || null
+    );
     const existingNodes = await listLocationNodes();
     const existingNode = existingNodes.find((item) => item.id === String(node?.id || "").trim());
     const timestamp = new Date().toISOString();
@@ -1172,6 +1330,7 @@ async function deleteLocationNodeSerialized(locationId) {
     if (!normalizedId) {
         return;
     }
+    await assertLocationNodeCanBeMutated(normalizedId);
 
     const [existingNodes, links, sessions, entries] = await Promise.all([
         listLocationNodes(),
@@ -1224,6 +1383,22 @@ export async function getItemLocationLink(linkId) {
     );
 }
 
+async function assertItemLocationTemplatesCanBeMutated(templateIds) {
+    const normalizedTemplateIds = new Set(
+        [...templateIds].map((templateId) => String(templateId || "").trim()).filter(Boolean)
+    );
+    const isLocked = listActiveCountRounds(await listCountRounds()).some((round) => (
+        normalizedTemplateIds.has(round.templateId)
+    ));
+    if (isLocked) {
+        throw new Error("A estrutura desta contagem está congelada enquanto a contagem estiver em andamento.");
+    }
+}
+
+async function assertItemLocationTemplateCanBeMutated(templateId) {
+    return assertItemLocationTemplatesCanBeMutated([templateId]);
+}
+
 export async function saveItemLocationLink(link) {
     const [templates, locations, existingLinks] = await Promise.all([
         listCountTemplates(),
@@ -1231,6 +1406,10 @@ export async function saveItemLocationLink(link) {
         listItemLocationLinks()
     ]);
     const existingLink = existingLinks.find((item) => item.id === String(link?.id || "").trim());
+    await assertItemLocationTemplatesCanBeMutated([
+        existingLink?.templateId,
+        link?.templateId
+    ]);
     const timestamp = new Date().toISOString();
     const validation = validateItemLocationLink({
         ...link,
@@ -1279,6 +1458,11 @@ export async function saveItemLocationLinksBatch(links) {
         listLocationNodes(),
         listItemLocationLinks()
     ]);
+    const existingLinksById = new Map(existingLinks.map((link) => [link.id, link]));
+    await assertItemLocationTemplatesCanBeMutated(links.flatMap((link) => [
+        existingLinksById.get(String(link?.id || "").trim())?.templateId,
+        link?.templateId
+    ]));
     const validatedLinks = validateItemLocationLinkBatch(links, templates, locations, existingLinks);
 
     await runWithFallback(
@@ -1295,6 +1479,8 @@ export async function deleteItemLocationLink(linkId) {
     if (!normalizedId) {
         return;
     }
+    const existingLink = await getItemLocationLink(normalizedId);
+    if (existingLink) await assertItemLocationTemplateCanBeMutated(existingLink.templateId);
 
     await runWithFallback(
         () => deleteFromStore(storeNames.itemLocationLinks, normalizedId),
@@ -1374,15 +1560,17 @@ async function saveItemUnitSettingsState(settings) {
 }
 
 async function assertItemUnitProfilesCanBeMutated(settings) {
-    const [sessions, entries] = await Promise.all([
+    const [sessions, entries, rounds] = await Promise.all([
         listLocationCountSessions(),
-        listLocationCountEntries()
+        listLocationCountEntries(),
+        listCountRounds()
     ]);
     const blockReason = settings.map((setting) => getItemUnitProfileMutationBlockReason({
         templateId: setting.templateId,
         itemCode: setting.itemCode,
         sessions,
-        entries
+        entries,
+        rounds
     })).find(Boolean);
 
     if (blockReason) throw new Error(blockReason.message);
@@ -1411,7 +1599,10 @@ async function saveItemUnitSettingSerialized(setting) {
     if (!validation.isValid) throw new Error(validation.error || "Configuração de unidade inválida.");
 
     const nextSettings = currentSettings.filter((item) => item.id !== validation.setting.id);
-    await assertItemUnitProfileCanBeMutated(validation.setting.templateId, validation.setting.itemCode);
+    await assertItemUnitProfilesCanBeMutated([
+        existingSetting,
+        validation.setting
+    ].filter(Boolean));
     await saveItemUnitSettingsState([...nextSettings, validation.setting]);
     return validation.setting;
 }
@@ -1658,11 +1849,15 @@ export async function finalizeConsolidationSnapshot(snapshotId, options = {}) {
     if (!snapshot) throw new Error("Fechamento não encontrado neste aparelho.");
     if (snapshot.status === "invalid") throw new Error("Um fechamento inválido não pode ser finalizado.");
     if (snapshot.finalizedAt) return { snapshot, wasAlreadyFinalized: true, warnings: [] };
-    const sessions = await listLocationCountSessions();
+    const [sessions, rounds] = await Promise.all([
+        listLocationCountSessions(),
+        listCountRounds()
+    ]);
     const classification = classifyFinalizationSessions(snapshot, sessions);
     if (classification.matchedCount === 0) {
         throw new Error("Nenhuma sessão incluída neste fechamento foi encontrada. A finalização foi cancelada.");
     }
+    assertSessionsNotLinkedToActiveRound(classification.openSessions, rounds);
     const timestamp = new Date().toISOString();
     const completed = await completeSnapshotOpenSessions(classification.openSessions, timestamp);
     const finalizedSessionIds = [
@@ -1805,8 +2000,101 @@ export async function getActiveCountRound(templateId) {
     )) || null;
 }
 
+function listActiveCountRounds(rounds) {
+    return assertValidCountRoundCollection(rounds).filter((round) => round.status === "active");
+}
+
+function findActiveRoundLocationBySessionId(rounds, sessionId) {
+    for (const round of listActiveCountRounds(rounds)) {
+        const location = round.locations.find((item) => item.sessionId === sessionId);
+        if (location) return { round, location };
+    }
+    return null;
+}
+
+function assertStandaloneSessionCreationAllowed(session, rounds) {
+    const activeRound = listActiveCountRounds(rounds).find((round) => (
+        round.templateId === session.templateId
+        && round.locations.some((location) => location.locationId === session.locationId)
+    ));
+    if (activeRound) {
+        throw new Error("Este local faz parte de uma contagem em andamento. Abra-o pela jornada da rodada.");
+    }
+}
+
+function assertLinkedSessionMutationAllowed(existingSession, nextSession, rounds) {
+    if (!existingSession) return;
+    const reference = findActiveRoundLocationBySessionId(rounds, existingSession.id);
+    if (!reference) return;
+    if (!["draft", "in_progress"].includes(nextSession.status)) {
+        throw new Error("Esta sessão pertence a uma contagem em andamento e só pode ser encerrada na finalização global.");
+    }
+}
+
+function assertSessionsNotLinkedToActiveRound(sessions, rounds) {
+    const linkedSession = sessions.find((session) => (
+        findActiveRoundLocationBySessionId(rounds, session.id)
+    ));
+    if (linkedSession) {
+        throw new Error("Este fechamento inclui uma sessão de uma contagem em andamento. Finalize a rodada pelo fluxo global.");
+    }
+}
+
 export async function startCountRound(templateId) {
     return serializeCountRoundMutation(() => startCountRoundSerialized(templateId));
+}
+
+function openLocalCountRoundLocationSession(roundId, locationId) {
+    const round = loadLocalCountRounds().find((item) => item.id === roundId) || null;
+    const mappedSessionId = round?.locations.find((item) => item.locationId === locationId)?.sessionId;
+    const existingSession = mappedSessionId
+        ? loadLocalLocationCountSessions().find((session) => session.id === mappedSessionId) || null
+        : null;
+    const mutation = buildCountRoundLocationSessionMutation({ round, locationId, existingSession });
+
+    if (mutation.created) commitLocalRoundSessionPair(mutation.round, mutation.session);
+    return mutation;
+}
+
+async function openIndexedDBCountRoundLocationSession(roundId, locationId) {
+    return mutateCountRoundLocationSession({
+        roundId,
+        locationId,
+        buildMutation: ({ round, existingSession }) => buildCountRoundLocationSessionMutation({
+            round,
+            locationId,
+            existingSession
+        })
+    });
+}
+
+async function openOrCreateCountRoundLocationSessionSerialized({ roundId, locationId } = {}) {
+    const normalizedRoundId = String(roundId || "").trim();
+    const normalizedLocationId = String(locationId || "").trim();
+    if (!normalizedRoundId || !normalizedLocationId) {
+        throw new CountRoundError("Informe a rodada e o local para continuar a contagem.");
+    }
+    if (!shouldUseIndexedDB) {
+        return openLocalCountRoundLocationSession(normalizedRoundId, normalizedLocationId);
+    }
+
+    try {
+        const mutation = await openIndexedDBCountRoundLocationSession(normalizedRoundId, normalizedLocationId);
+        try {
+            commitLocalRoundSessionPair(mutation.round, mutation.session);
+        } catch (mirrorError) {
+            console.warn("A sessão foi vinculada no IndexedDB, mas o espelho local não pôde ser atualizado.", mirrorError);
+        }
+        return mutation;
+    } catch (error) {
+        if (isCountRoundBusinessError(error)) throw error;
+        setCountRoundFallbackWarning(error);
+        return openLocalCountRoundLocationSession(normalizedRoundId, normalizedLocationId);
+    }
+}
+
+export async function openOrCreateCountRoundLocationSession(request) {
+    return serializeCountRoundMutation(() => openOrCreateCountRoundLocationSessionSerialized(request));
 }
 
 export async function listLocationCountSessions() {
@@ -1897,11 +2185,12 @@ function validateNewSessionSource(session, templates, locations, links) {
 }
 
 export async function saveLocationCountSession(session) {
-    const [templates, locations, links, sessions] = await Promise.all([
+    const [templates, locations, links, sessions, rounds] = await Promise.all([
         listCountTemplates(),
         listLocationNodes(),
         listItemLocationLinks(),
-        listLocationCountSessions()
+        listLocationCountSessions(),
+        listCountRounds()
     ]);
     const existingSession = sessions.find((item) => item.id === String(session?.id || "").trim());
     const timestamp = new Date().toISOString();
@@ -1913,6 +2202,8 @@ export async function saveLocationCountSession(session) {
     const validation = validateLocationCountSession(candidate, templates, locations, links);
 
     validateSessionTransition(existingSession, candidate);
+    if (existingSession) assertLinkedSessionMutationAllowed(existingSession, candidate, rounds);
+    else assertStandaloneSessionCreationAllowed(candidate, rounds);
     if (!validation.isValid) throw new Error(validation.error || "Sessão de contagem inválida.");
     if (!existingSession) validateNewSessionSource(validation.session, templates, locations, links);
 
@@ -1986,6 +2277,10 @@ async function deleteLocationCountSessionSerialized(sessionId) {
 
     const session = await getLocationCountSession(normalizedId);
     if (!session) return;
+    const rounds = await listCountRounds();
+    if (findActiveRoundLocationBySessionId(rounds, session.id)) {
+        throw new Error("Esta sessão pertence a uma contagem em andamento e não pode ser removida.");
+    }
     if (!["draft", "canceled"].includes(session.status)) {
         throw new Error("Somente sessões em rascunho ou canceladas podem ser removidas permanentemente.");
     }

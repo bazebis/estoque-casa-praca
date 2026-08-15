@@ -24,6 +24,11 @@ import {
     showCountConsolidationView
 } from "./countConsolidationUi.js";
 import { createConsolidationSnapshotFromPreview } from "./consolidationSnapshots.js";
+import { findAndBuildActiveCountRoundReadModel } from "./countRoundReadModel.js";
+import {
+    connectCountRoundEvents,
+    renderCountRoundHome
+} from "./countRoundUi.js";
 import {
     connectConsolidationSnapshotsEvents,
     hideConsolidationSnapshotsView,
@@ -154,7 +159,9 @@ import {
     listLocationNodes,
     listLocationCountSessions,
     listLocationCountEntries,
+    listCountRounds,
     loadWhatsappSettings,
+    openOrCreateCountRoundLocationSession,
     saveCatalogBackupBeforeImport,
     saveCatalog,
     saveCountingHistory,
@@ -168,6 +175,7 @@ import {
     saveCustomUnits,
     restoreBackupState,
     saveWhatsappSettings,
+    startCountRound,
     clearWhatsappSettings,
     addLocationCountEntry,
     removeLocationCountEntry,
@@ -657,11 +665,13 @@ async function loadQuickPilotContext() {
 }
 
 async function loadOperationalHierarchyContext(requestedTemplateId = null) {
-    const [templates, locations, links, sessions] = await Promise.all([
+    const [templates, locations, links, sessions, entries, rounds] = await Promise.all([
         listCountTemplates(),
         listLocationNodes(),
         listItemLocationLinks(),
-        listLocationCountSessions()
+        listLocationCountSessions(),
+        listLocationCountEntries(),
+        listCountRounds()
     ]);
     const selectedTemplate = requestedTemplateId
         ? templates.find((template) => template.id === requestedTemplateId) || null
@@ -677,7 +687,13 @@ async function loadOperationalHierarchyContext(requestedTemplateId = null) {
         sessions,
         templateId: selectedTemplate?.id || ""
     });
-    return { templates, locations, links, sessions, selectedTemplate, hierarchy };
+    const roundViewModel = selectedTemplate ? findAndBuildActiveCountRoundReadModel({
+        rounds,
+        templateId: selectedTemplate.id,
+        sessions,
+        entries
+    }) : null;
+    return { templates, locations, links, sessions, entries, rounds, selectedTemplate, hierarchy, roundViewModel };
 }
 
 function reconcileHierarchySelection(hierarchy) {
@@ -694,11 +710,16 @@ async function refreshPilotDashboard(message = "") {
         const context = await loadOperationalHierarchyContext();
         activeOperationalHierarchy = context.hierarchy;
         const selectionMessage = reconcileHierarchySelection(context.hierarchy);
+        renderCountRoundHome({
+            template: context.selectedTemplate,
+            roundViewModel: context.roundViewModel
+        });
         activeHierarchyNavigationView = renderPhysicalHierarchyNavigation({
             hierarchy: context.hierarchy,
             selectedNodeId: activeHierarchyNodeId,
             templateName: context.selectedTemplate?.name || "",
-            message: message || selectionMessage
+            message: message || selectionMessage,
+            roundViewModel: context.roundViewModel
         });
     } catch {
         activeOperationalHierarchy = null;
@@ -708,7 +729,26 @@ async function refreshPilotDashboard(message = "") {
             hierarchy: buildOperationalHierarchy(),
             message: "Não foi possível carregar os locais operacionais."
         });
+        renderCountRoundHome();
     }
+}
+
+async function startOperationalCountRound() {
+    try {
+        const context = await loadOperationalHierarchyContext();
+        if (!context.selectedTemplate) throw new Error("Importe um template antes de iniciar a contagem.");
+        if (!context.roundViewModel) await startCountRound(context.selectedTemplate.id);
+        activeHierarchyNodeId = null;
+        await refreshPilotDashboard("Contagem iniciada. Escolha livremente um local para começar.");
+    } catch (error) {
+        window.alert(error.message || "Não foi possível iniciar a contagem.");
+    }
+}
+
+async function continueOperationalCountRound() {
+    activeHierarchyNodeId = null;
+    await refreshPilotDashboard("Escolha qualquer local para continuar a contagem.");
+    window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 async function loadCountConsolidationContext() {
@@ -1092,27 +1132,30 @@ async function openLocationCounting(locationId) {
         const node = getOperationalNode(context.hierarchy, locationId);
         if (!context.selectedTemplate) throw new Error("Nenhum template está disponível para contagem.");
         if (!node) throw new Error("Este local não está operacionalmente disponível.");
-        const countingMode = resolvePhysicalHierarchyCountingMode(node);
+        if (!context.roundViewModel) throw new Error("Inicie uma contagem antes de abrir este local.");
+        const roundLocation = context.roundViewModel.locations.find((item) => item.locationId === locationId);
+        const countingMode = resolvePhysicalHierarchyCountingMode(node, {
+            hasActiveRound: true,
+            roundLocation
+        });
         if (countingMode === "blocked") {
-            throw new Error("Este local não possui itens vinculados diretamente para criar uma sessão.");
+            throw new Error(roundLocation?.attentionReason || "Este local não pertence ao plano operacional da rodada.");
         }
 
         const returnNodeId = getCountingReturnNodeId(activeHierarchyNavigationView);
         const returnNode = getOperationalNode(context.hierarchy, returnNodeId);
-        const session = countingMode === "resume"
-            ? node.openSession
-            : await createLocationCountSessionDraft({
-                templateId: context.selectedTemplate.id,
-                locationId,
-                notes: "Criada pela navegação de locais físicos."
-            });
+        const mutation = await openOrCreateCountRoundLocationSession({
+            roundId: context.roundViewModel.round.id,
+            locationId
+        });
+        const session = mutation.session;
 
         activeAreaCountSessionId = session.id;
-        activeAreaOpenSessionCount = Math.max(node.openSessionCount, 1);
+        activeAreaOpenSessionCount = 1;
         activeAreaReturnNodeId = returnNode?.id || null;
         await refreshAreaCountingView();
         showAreaCountingFeedback(
-            countingMode === "resume" ? "Sessão aberta novamente." : "Rascunho criado para este local.",
+            mutation.created ? "Rascunho criado para este local." : "Sessão aberta novamente.",
             "success"
         );
         showAreaCountingView(returnNode ? `Voltar para ${returnNode.name}` : "Voltar para locais");
@@ -2207,6 +2250,10 @@ connectPhysicalHierarchyEvents({
     onSelectNode: selectPhysicalHierarchyNode,
     onOpenCounting: openLocationCounting,
     onBack: backPhysicalHierarchy
+});
+connectCountRoundEvents({
+    onStart: startOperationalCountRound,
+    onContinue: continueOperationalCountRound
 });
 connectAreaCountingEvents({
     onCloseArea: closeAreaCounting,
