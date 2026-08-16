@@ -242,12 +242,12 @@ runTest("outside_area continua excluída do TOTAL", () => {
     assert.equal(item.total.status, "pending");
 });
 
-runTest("jornada 4C preserva lifecycle, snapshots, consolidação e Backup Schema 2", () => {
+runTest("finalização global 4D preserva lifecycle, consolidação e Backup Schema 2", () => {
     const protectedHashes = {
-        "src/storage.js": "5c749bf622f2d36da28785a52339206e8ac4df3a691f63da9fe07f2ae68703f1",
-        "src/db.js": "d825db4e01ea0428d4e845518d653d5c13bbe431f0ccf09aaef6f760836b398b",
+        "src/storage.js": "8eef28af1967cae5fbd0630356dcb8ccc1706c50a3e99b2ba60ebb2e7b029658",
+        "src/db.js": "0d1c7557133d8940d2234a25c12931d34c5f4c87a27dfa5d0a2afbd81a681106",
         "src/locationCountSessions.js": "c3472ac9294cc475ab98a69223e1bac4686fcf12b5c603f44d4d685e9133b059",
-        "src/locationCountEntries.js": "8e0689ff4f7ea47393cb58f03032c173af22e353b70dcf54ccb0ffeec1dde992",
+        "src/locationCountEntries.js": "73e8420ca6d30990ce0f72b1095d7b245f6d6ca54b8b93d0db18bef092c1a678",
         "src/consolidationSnapshots.js": "f067f20db0afe1841a0012e57537f1aa6a4ef26d3d7a00cb0211adc8b6a3cee6",
         "src/countConsolidation.js": "effa0ab0bcefaec79fff1967416059d9e3a22fbec1d0169dffa328bad2e6c8ab",
         "src/backup.js": "9e42e9758f98b612d176e15c37e177dbecc4125c8b9f4e1ca3f88cce63ef8652"
@@ -256,8 +256,11 @@ runTest("jornada 4C preserva lifecycle, snapshots, consolidação e Backup Schem
         assert.equal(fileSha256(path), expectedHash, path);
     });
     assert.match(readSource("src/storage.js"), /assertLinkedSessionMutationAllowed/);
+    assert.match(readSource("src/storage.js"), /finalizeCountRound/);
     assert.match(readSource("src/db.js"), /mutateCountRoundLocationSession/);
+    assert.match(readSource("src/db.js"), /finalizeCountRoundAtomically/);
     assert.match(readSource("src/locationCountSessions.js"), /status: "draft"/);
+    assert.match(readSource("src/locationCountEntries.js"), /createLocationCountCompletionZeroEntryModel/);
 });
 
 runTest("Miolo preserva 2 un + 500 ml + 1 l = 7.5 l", () => {

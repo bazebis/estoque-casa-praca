@@ -40,6 +40,10 @@ import {
     createCountRoundModel
 } from "./countRounds.js";
 import {
+    buildCountRoundFinalizationPlan,
+    CountRoundFinalizationError
+} from "./countRoundFinalization.js";
+import {
     createLocationCountEntryModel,
     hasActiveEntriesForItemInOpenSessions,
     normalizeLocationCountEntries,
@@ -56,7 +60,9 @@ import { normalizeCustomUnits } from "./units.js";
 import {
     addRecordFromStoreSnapshot,
     bulkPut,
+    deleteConsolidationSnapshotAtomically,
     deleteFromStore,
+    finalizeCountRoundAtomically,
     getAllFromStore,
     getFromStore,
     isIndexedDBAvailable,
@@ -468,6 +474,33 @@ function commitLocalCountRoundReconciliationMirror(plan) {
     } catch (mirrorError) {
         restoreLocalRoundSessionSnapshot(snapshot);
         throw mirrorError;
+    }
+}
+
+function commitLocalCountRoundFinalization(plan) {
+    const storageKeys = [
+        countRoundsStorageKey,
+        locationCountSessionsStorageKey,
+        locationCountEntriesStorageKey,
+        consolidationSnapshotsStorageKey
+    ];
+    const snapshot = storageKeys.map((key) => ({ key, value: localStorage.getItem(key) }));
+
+    try {
+        const rounds = mergeRecordsById(loadLocalCountRounds(), [plan.round]);
+        const sessions = mergeRecordsById(loadLocalLocationCountSessions(), plan.mirrorSessions);
+        const entries = mergeRecordsById(loadLocalLocationCountEntries(), plan.mirrorEntries);
+        writeJson(countRoundsStorageKey, sortCountRounds(rounds));
+        writeJson(locationCountSessionsStorageKey, sortLocationCountSessions(sessions));
+        writeJson(locationCountEntriesStorageKey, sortLocationCountEntries(entries));
+        writeJson(consolidationSnapshotsStorageKey, sortConsolidationSnapshots(plan.snapshots));
+    } catch (writeError) {
+        try {
+            restoreLocalRoundSessionSnapshot(snapshot);
+        } catch (rollbackError) {
+            throw new Error(`A finalização falhou e o rollback local também falhou: ${rollbackError.message}`);
+        }
+        throw writeError;
     }
 }
 
@@ -1804,8 +1837,47 @@ export async function saveConsolidationSnapshot(snapshot) {
 export async function deleteConsolidationSnapshot(snapshotId) {
     const normalizedId = String(snapshotId || "").trim();
     if (!normalizedId) return;
-    const remainingSnapshots = (await listConsolidationSnapshots()).filter((snapshot) => snapshot.id !== normalizedId);
-    await saveConsolidationSnapshotsState(remainingSnapshots);
+    const buildNextSnapshots = ({ rounds, snapshots }) => {
+        const normalizedRounds = assertValidCountRoundCollection(rounds);
+        const isReferenced = normalizedRounds.some((round) => (
+            round.status === "completed" && round.completion?.snapshotId === normalizedId
+        ));
+        if (isReferenced) {
+            throw new CountRoundFinalizationError(
+                "Este fechamento pertence a uma rodada concluída e não pode ser removido.",
+                "referenced-final-snapshot"
+            );
+        }
+        return sortConsolidationSnapshots(snapshots).filter((snapshot) => snapshot.id !== normalizedId);
+    };
+    const deleteLocal = () => {
+        const nextSnapshots = buildNextSnapshots({
+            rounds: loadLocalCountRounds(),
+            snapshots: loadLocalConsolidationSnapshots()
+        });
+        return saveLocalConsolidationSnapshots(nextSnapshots);
+    };
+
+    if (!shouldUseIndexedDB) {
+        deleteLocal();
+        return;
+    }
+    try {
+        const nextSnapshots = await deleteConsolidationSnapshotAtomically({
+            snapshotId: normalizedId,
+            snapshotsKey: consolidationSnapshotsStorageKey,
+            buildNextSnapshots
+        });
+        try {
+            saveLocalConsolidationSnapshots(nextSnapshots);
+        } catch (mirrorError) {
+            console.warn("O snapshot foi removido do IndexedDB, mas o espelho local não pôde ser atualizado.", mirrorError);
+        }
+    } catch (error) {
+        if (isCountRoundBusinessError(error)) throw error;
+        setCountRoundFallbackWarning(error);
+        deleteLocal();
+    }
 }
 
 function classifyFinalizationSessions(snapshot, sessions) {
@@ -1899,7 +1971,9 @@ function setCountRoundFallbackWarning(error) {
 }
 
 function isCountRoundBusinessError(error) {
-    return error instanceof CountRoundError || error?.name === "ConstraintError";
+    return error instanceof CountRoundError
+        || error instanceof CountRoundFinalizationError
+        || error?.name === "ConstraintError";
 }
 
 async function runCountRoundReadWithFallback(databaseOperation, fallbackOperation) {
@@ -2095,6 +2169,61 @@ async function openOrCreateCountRoundLocationSessionSerialized({ roundId, locati
 
 export async function openOrCreateCountRoundLocationSession(request) {
     return serializeCountRoundMutation(() => openOrCreateCountRoundLocationSessionSerialized(request));
+}
+
+function buildLocalCountRoundFinalizationPlan(roundId) {
+    const round = loadLocalCountRounds().find((item) => item.id === roundId) || null;
+    const template = loadLocalCountTemplates().find((item) => item.id === round?.templateId) || null;
+    return buildCountRoundFinalizationPlan({
+        round,
+        template,
+        sessions: loadLocalLocationCountSessions(),
+        entries: loadLocalLocationCountEntries(),
+        unitSettings: loadLocalItemUnitSettings(),
+        snapshots: loadLocalConsolidationSnapshots()
+    });
+}
+
+function finalizeLocalCountRound(roundId) {
+    const plan = buildLocalCountRoundFinalizationPlan(roundId);
+    if (plan.changed) commitLocalCountRoundFinalization(plan);
+    return plan;
+}
+
+function finalizeIndexedDBCountRound(roundId) {
+    return finalizeCountRoundAtomically({
+        roundId,
+        itemUnitSettingsKey: itemUnitSettingsStorageKey,
+        snapshotsKey: consolidationSnapshotsStorageKey,
+        buildPlan: buildCountRoundFinalizationPlan
+    });
+}
+
+async function finalizeCountRoundSerialized(roundId) {
+    const normalizedRoundId = String(roundId || "").trim();
+    if (!normalizedRoundId) throw new CountRoundFinalizationError("Informe a rodada que será finalizada.");
+    if (!shouldUseIndexedDB) return finalizeLocalCountRound(normalizedRoundId);
+
+    try {
+        const plan = await finalizeIndexedDBCountRound(normalizedRoundId);
+        try {
+            commitLocalCountRoundFinalization(plan);
+        } catch (mirrorError) {
+            storageWarning = "A contagem foi finalizada no IndexedDB, mas o espelho local não pôde ser atualizado.";
+            console.warn(storageWarning, mirrorError);
+        }
+        return plan;
+    } catch (error) {
+        if (isCountRoundBusinessError(error)) throw error;
+        setCountRoundFallbackWarning(error);
+        return finalizeLocalCountRound(normalizedRoundId);
+    }
+}
+
+export async function finalizeCountRound(roundId) {
+    return serializeItemUnitSettingsMutation(
+        () => serializeCountRoundMutation(() => finalizeCountRoundSerialized(roundId))
+    );
 }
 
 export async function listLocationCountSessions() {

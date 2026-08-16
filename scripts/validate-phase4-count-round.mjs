@@ -215,7 +215,24 @@ await runTest("activeTemplateId reserva o template ativo", () => {
 });
 
 await runTest("completed omite activeTemplateId", () => {
-    const round = { ...createRound(), status: "completed", finishedAt: timestamp, completion: {} };
+    const activeRound = createRound();
+    const totalOccurrences = activeRound.locations.reduce((total, location) => total + location.plannedItems.length, 0);
+    const round = {
+        ...activeRound,
+        status: "completed",
+        finishedAt: timestamp,
+        completion: {
+            snapshotId: "snapshot-completed",
+            totalLocations: activeRound.locations.length,
+            totalPlannedOccurrences: totalOccurrences,
+            coveredBeforeFinalization: totalOccurrences,
+            explicitZeroEntryCount: 0,
+            materializedSessionCount: 0,
+            finalizedSessionCount: activeRound.locations.length,
+            snapshotStatus: "complete",
+            finalizedWithWarnings: false
+        }
+    };
     delete round.activeTemplateId;
     const validation = validateCountRound(round);
     assert.equal(validation.isValid, true);
@@ -223,7 +240,24 @@ await runTest("completed omite activeTemplateId", () => {
 });
 
 await runTest("completed com activeTemplateId é rejeitada", () => {
-    const round = { ...createRound(), status: "completed", finishedAt: timestamp, completion: {} };
+    const activeRound = createRound();
+    const totalOccurrences = activeRound.locations.reduce((total, location) => total + location.plannedItems.length, 0);
+    const round = {
+        ...activeRound,
+        status: "completed",
+        finishedAt: timestamp,
+        completion: {
+            snapshotId: "snapshot-completed",
+            totalLocations: activeRound.locations.length,
+            totalPlannedOccurrences: totalOccurrences,
+            coveredBeforeFinalization: totalOccurrences,
+            explicitZeroEntryCount: 0,
+            materializedSessionCount: 0,
+            finalizedSessionCount: activeRound.locations.length,
+            snapshotStatus: "complete",
+            finalizedWithWarnings: false
+        }
+    };
     assert.equal(validateCountRound(round).isValid, false);
 });
 
@@ -557,12 +591,13 @@ await runTest("lifecycle atual de session permanece imediato e separado", () => 
     assert.doesNotMatch(sessionSource, /countRound|sessionId: null/);
 });
 
-await runTest("UI 4C não introduz fechamento, skip ou zero na fundação", () => {
+await runTest("extensão 4D mantém ausentes fechamento local, skip e zero manual", () => {
     const mainSource = readSource("src/main.js");
     const indexSource = readSource("index.html");
     const roundUiSource = readSource("src/countRoundUi.js");
     assert.match(`${mainSource}\n${indexSource}`, /countRound|count-round/);
-    assert.doesNotMatch(roundUiSource, /skippedAt|completion_zero|Concluir local|Finalizar contagem/);
+    assert.match(roundUiSource, /onFinalize/);
+    assert.doesNotMatch(roundUiSource, /skippedAt|completion_zero|Concluir local|Pular/);
 });
 
 assert.ok(executedTestCount >= 40);

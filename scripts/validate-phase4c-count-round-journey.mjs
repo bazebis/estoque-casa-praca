@@ -598,8 +598,9 @@ await runTest("UI não possui Concluir local", () => {
     assert.doesNotMatch(readSource("src/countRoundUi.js"), /Concluir local/);
 });
 
-await runTest("UI 4C não possui Finalizar contagem", () => {
-    assert.doesNotMatch(readSource("src/countRoundUi.js"), /Finalizar contagem/);
+await runTest("UI 4D adiciona somente finalização global ao card da round", () => {
+    assert.match(readSource("index.html"), /btn-finalize-count-round[^>]*>Finalizar contagem/);
+    assert.doesNotMatch(readSource("src/countRoundUi.js"), /Concluir local|Pular|skippedAt/);
 });
 
 await runTest("não existe completion_zero", () => {
@@ -908,7 +909,8 @@ await runTest("correção focalizada não introduz UI nem escopo 4D", () => {
         roundSource.indexOf("export function validateCountRound")
     );
     assert.doesNotMatch(reconciliationSource, /completion_zero|skippedAt/);
-    assert.doesNotMatch(readSource("src/countRoundUi.js"), /Finalizar contagem|Concluir local|Pular/);
+    assert.match(readSource("src/countRoundUi.js"), /onFinalize/);
+    assert.doesNotMatch(readSource("src/countRoundUi.js"), /Concluir local|Pular|skippedAt/);
 });
 
 await runTest("F3 recupera avanço draft para in_progress e entry nova", () => {

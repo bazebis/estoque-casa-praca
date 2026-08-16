@@ -50,6 +50,7 @@ export function renderCountRoundHome(options = {}) {
     const progress = getElement("count-round-progress");
     const summary = getElement("count-round-location-summary");
     const action = getElement("btn-count-round-action");
+    const finalizeAction = getElement("btn-finalize-count-round");
 
     card.dataset.mode = view.mode;
     getElement("count-round-title").textContent = view.title;
@@ -62,7 +63,14 @@ export function renderCountRoundHome(options = {}) {
     action.textContent = view.actionLabel;
     action.disabled = view.actionDisabled;
     action.dataset.countRoundAction = view.mode;
+    finalizeAction.hidden = view.mode !== "continue";
+    finalizeAction.disabled = false;
     return view;
+}
+
+export function setCountRoundActionsBusy(isBusy) {
+    getElement("btn-count-round-action").disabled = isBusy;
+    getElement("btn-finalize-count-round").disabled = isBusy;
 }
 
 export function connectCountRoundEvents(handlers) {
@@ -71,4 +79,5 @@ export function connectCountRoundEvents(handlers) {
         if (action === "start") handlers.onStart();
         if (action === "continue") handlers.onContinue();
     });
+    getElement("btn-finalize-count-round").addEventListener("click", () => handlers.onFinalize());
 }

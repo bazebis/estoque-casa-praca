@@ -334,4 +334,104 @@ export function reconcileCountRoundFallbackMappings({ localRounds, localSessions
     }));
 }
 
+export function finalizeCountRoundAtomically({
+    roundId,
+    itemUnitSettingsKey,
+    snapshotsKey,
+    buildPlan
+}) {
+    return openDatabase().then((database) => new Promise((resolve, reject) => {
+        const transaction = database.transaction([
+            storeNames.countRounds,
+            storeNames.locationCountSessions,
+            storeNames.locationCountEntries,
+            storeNames.appState,
+            storeNames.countTemplates
+        ], "readwrite");
+        const roundStore = transaction.objectStore(storeNames.countRounds);
+        const sessionStore = transaction.objectStore(storeNames.locationCountSessions);
+        const entryStore = transaction.objectStore(storeNames.locationCountEntries);
+        const appStateStore = transaction.objectStore(storeNames.appState);
+        const templateStore = transaction.objectStore(storeNames.countTemplates);
+        let finalizationPlan = null;
+        let operationError = null;
+
+        function abortWith(error) {
+            operationError = error;
+            transaction.abort();
+        }
+
+        transaction.oncomplete = () => resolve(finalizationPlan);
+        transaction.onerror = () => reject(operationError || transaction.error);
+        transaction.onabort = () => reject(operationError || transaction.error || new Error("Transação cancelada."));
+        const roundRequest = roundStore.get(roundId);
+        roundRequest.onerror = () => abortWith(roundRequest.error);
+        roundRequest.onsuccess = () => {
+            const round = roundRequest.result;
+            if (!round) {
+                try {
+                    buildPlan({ round: null, sessions: [], entries: [], template: null, unitSettings: [], snapshots: [] });
+                } catch (error) {
+                    abortWith(error);
+                }
+                return;
+            }
+            Promise.all([
+                createRequestPromise(sessionStore.getAll()),
+                createRequestPromise(entryStore.getAll()),
+                createRequestPromise(templateStore.get(round?.templateId)),
+                createRequestPromise(appStateStore.get(itemUnitSettingsKey)),
+                createRequestPromise(appStateStore.get(snapshotsKey))
+            ]).then(([sessions, entries, template, unitSettingsState, snapshotsState]) => {
+                finalizationPlan = buildPlan({
+                    round,
+                    sessions,
+                    entries,
+                    template,
+                    unitSettings: unitSettingsState?.value || [],
+                    snapshots: snapshotsState?.value || []
+                });
+                if (!finalizationPlan.changed) return;
+                finalizationPlan.sessionsToPut.forEach((session) => sessionStore.put(session));
+                finalizationPlan.entriesToAdd.forEach((entry) => entryStore.add(entry));
+                appStateStore.put({ key: snapshotsKey, value: finalizationPlan.snapshots });
+                roundStore.put(finalizationPlan.round);
+            }).catch(abortWith);
+        };
+    }));
+}
+
+export function deleteConsolidationSnapshotAtomically({ snapshotId, snapshotsKey, buildNextSnapshots }) {
+    return openDatabase().then((database) => new Promise((resolve, reject) => {
+        const transaction = database.transaction(
+            [storeNames.countRounds, storeNames.appState],
+            "readwrite"
+        );
+        const roundStore = transaction.objectStore(storeNames.countRounds);
+        const appStateStore = transaction.objectStore(storeNames.appState);
+        let nextSnapshots = null;
+        let operationError = null;
+
+        function abortWith(error) {
+            operationError = error;
+            transaction.abort();
+        }
+
+        transaction.oncomplete = () => resolve(nextSnapshots);
+        transaction.onerror = () => reject(operationError || transaction.error);
+        transaction.onabort = () => reject(operationError || transaction.error || new Error("Transação cancelada."));
+        Promise.all([
+            createRequestPromise(roundStore.getAll()),
+            createRequestPromise(appStateStore.get(snapshotsKey))
+        ]).then(([rounds, snapshotsState]) => {
+            nextSnapshots = buildNextSnapshots({
+                snapshotId,
+                rounds,
+                snapshots: snapshotsState?.value || []
+            });
+            appStateStore.put({ key: snapshotsKey, value: nextSnapshots });
+        }).catch(abortWith);
+    }));
+}
+
 export { storeNames };

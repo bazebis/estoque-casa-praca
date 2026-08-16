@@ -43,12 +43,25 @@ function normalizeTimestamp(value, fallback = null) {
         : fallback;
 }
 
-function cloneCompletion(completion) {
+function normalizeCompletion(completion) {
     if (!completion || typeof completion !== "object" || Array.isArray(completion)) {
         return null;
     }
 
-    return { ...completion };
+    const numericFields = [
+        "totalLocations",
+        "totalPlannedOccurrences",
+        "coveredBeforeFinalization",
+        "explicitZeroEntryCount",
+        "materializedSessionCount",
+        "finalizedSessionCount"
+    ];
+    return {
+        snapshotId: normalizeText(completion.snapshotId),
+        ...Object.fromEntries(numericFields.map((field) => [field, Number(completion[field])])),
+        snapshotStatus: normalizeText(completion.snapshotStatus),
+        finalizedWithWarnings: completion.finalizedWithWarnings === true
+    };
 }
 
 function normalizeRoundLocation(location) {
@@ -97,7 +110,7 @@ export function normalizeCountRound(round, timestamp = new Date().toISOString())
         createdAt,
         updatedAt: normalizeTimestamp(round.updatedAt, createdAt),
         finishedAt: normalizeTimestamp(round.finishedAt),
-        completion: cloneCompletion(round.completion)
+        completion: normalizeCompletion(round.completion)
     };
 
     if (status === "active") {
@@ -134,7 +147,46 @@ function collectRoundIdentityErrors(candidate, sourceRound) {
     if (candidate?.status === "completed" && !candidate.finishedAt) {
         errors.push("Uma rodada concluída precisa da data de término.");
     }
+    if (candidate?.status === "completed" && !candidate.completion) {
+        errors.push("Uma rodada concluída precisa preservar o resultado do fechamento.");
+    }
 
+    return errors;
+}
+
+function collectRoundCompletionErrors(candidate) {
+    if (candidate?.status !== "completed" || !candidate.completion) return [];
+
+    const completion = candidate.completion;
+    const totalLocations = candidate.locations.length;
+    const totalOccurrences = candidate.locations.reduce((total, location) => (
+        total + location.plannedItems.length
+    ), 0);
+    const countFields = [
+        "totalLocations", "totalPlannedOccurrences", "coveredBeforeFinalization",
+        "explicitZeroEntryCount", "materializedSessionCount", "finalizedSessionCount"
+    ];
+    const errors = [];
+
+    if (!completion.snapshotId) errors.push("O fechamento da rodada precisa apontar para um snapshot.");
+    if (countFields.some((field) => !Number.isInteger(completion[field]) || completion[field] < 0)) {
+        errors.push("Os contadores do fechamento da rodada são inválidos.");
+    }
+    if (completion.totalLocations !== totalLocations) errors.push("O total de locais do fechamento diverge do plano.");
+    if (completion.totalPlannedOccurrences !== totalOccurrences) {
+        errors.push("O total de ocorrências do fechamento diverge do plano.");
+    }
+    if (completion.explicitZeroEntryCount !== totalOccurrences - completion.coveredBeforeFinalization) {
+        errors.push("A quantidade de zeros explícitos diverge da cobertura anterior.");
+    }
+    if (completion.materializedSessionCount > totalLocations) errors.push("Há sessions materializadas em excesso.");
+    if (completion.finalizedSessionCount !== totalLocations) errors.push("Todas as sessions precisam ser finalizadas.");
+    if (!["complete", "partial"].includes(completion.snapshotStatus)) {
+        errors.push("O status do snapshot final da rodada é inválido.");
+    }
+    if (completion.finalizedWithWarnings !== (completion.snapshotStatus !== "complete")) {
+        errors.push("O indicador de avisos diverge do status do snapshot.");
+    }
     return errors;
 }
 
@@ -578,7 +630,8 @@ export function validateCountRound(round) {
     const candidate = normalizeCountRound(round);
     const errors = [
         ...collectRoundIdentityErrors(candidate, round),
-        ...collectRoundLocationsErrors(candidate, round)
+        ...collectRoundLocationsErrors(candidate, round),
+        ...collectRoundCompletionErrors(candidate)
     ];
 
     return {

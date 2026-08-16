@@ -388,19 +388,21 @@ runTest("Quick Pilot permanece byte a byte inalterado", () => {
     assert.equal(fileSha256("src/quickPilot.js"), "5ac2f3fb035bd4049f1ce4ece4fe34f2f2237fdabf6d3eecdb5dc9956d7e352d");
 });
 
-runTest("superfícies protegidas refletem a jornada 4C sem alterar entries, backup ou conversão", () => {
+runTest("superfícies protegidas refletem a finalização global 4D sem alterar backup ou conversão", () => {
     const protectedHashes = {
-        "src/storage.js": "5c749bf622f2d36da28785a52339206e8ac4df3a691f63da9fe07f2ae68703f1",
-        "src/db.js": "d825db4e01ea0428d4e845518d653d5c13bbe431f0ccf09aaef6f760836b398b",
+        "src/storage.js": "8eef28af1967cae5fbd0630356dcb8ccc1706c50a3e99b2ba60ebb2e7b029658",
+        "src/db.js": "0d1c7557133d8940d2234a25c12931d34c5f4c87a27dfa5d0a2afbd81a681106",
         "src/locationCountSessions.js": "c3472ac9294cc475ab98a69223e1bac4686fcf12b5c603f44d4d685e9133b059",
-        "src/locationCountEntries.js": "8e0689ff4f7ea47393cb58f03032c173af22e353b70dcf54ccb0ffeec1dde992",
+        "src/locationCountEntries.js": "73e8420ca6d30990ce0f72b1095d7b245f6d6ca54b8b93d0db18bef092c1a678",
         "src/backup.js": "9e42e9758f98b612d176e15c37e177dbecc4125c8b9f4e1ca3f88cce63ef8652",
         "src/unitConversion.js": "fe8b997f21d22e33f7ee3f4814eb1563b957e8365f197175d9fcf937df8d55f1"
     };
     Object.entries(protectedHashes).forEach(([path, expectedHash]) => assert.equal(fileSha256(path), expectedHash));
     assert.match(readSource("src/db.js"), /mutateCountRoundLocationSession/);
     assert.match(readSource("src/storage.js"), /openOrCreateCountRoundLocationSession/);
+    assert.match(readSource("src/storage.js"), /finalizeCountRound/);
     assert.match(readSource("src/locationCountSessions.js"), /createLocationCountSessionDraftFromPlanModel/);
+    assert.match(readSource("src/locationCountEntries.js"), /createLocationCountCompletionZeroEntryModel/);
 });
 
 runTest("Anterior e Próximo entre itens permanecem presentes", () => {

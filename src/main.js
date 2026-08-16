@@ -27,7 +27,8 @@ import { createConsolidationSnapshotFromPreview } from "./consolidationSnapshots
 import { findAndBuildActiveCountRoundReadModel } from "./countRoundReadModel.js";
 import {
     connectCountRoundEvents,
-    renderCountRoundHome
+    renderCountRoundHome,
+    setCountRoundActionsBusy
 } from "./countRoundUi.js";
 import {
     connectConsolidationSnapshotsEvents,
@@ -145,6 +146,7 @@ import {
     getStorageStatus,
     importCountTemplateWithUnitProfiles,
     finalizeConsolidationSnapshot,
+    finalizeCountRound,
     initializeStorage,
     loadCatalog,
     loadCountingDraft,
@@ -749,6 +751,33 @@ async function continueOperationalCountRound() {
     activeHierarchyNodeId = null;
     await refreshPilotDashboard("Escolha qualquer local para continuar a contagem.");
     window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function confirmGlobalCountRoundFinalization(summary) {
+    const missingCount = summary.totalPlannedOccurrences - summary.coveredPlannedOccurrences;
+    return window.confirm(
+        `Finalizar a contagem inteira? ${missingCount} ocorrência(s) sem lançamento será(ão) `
+        + "registrada(s) como zero, inclusive em locais nunca abertos. Depois disso, a rodada não poderá ser editada."
+    );
+}
+
+async function finalizeOperationalCountRound() {
+    let shouldRefresh = false;
+    try {
+        const context = await loadOperationalHierarchyContext();
+        if (!context.roundViewModel) throw new Error("Não existe uma contagem ativa para finalizar.");
+        if (!confirmGlobalCountRoundFinalization(context.roundViewModel.summary)) return;
+        setCountRoundActionsBusy(true);
+        const result = await finalizeCountRound(context.roundViewModel.round.id);
+        const zeroCount = result.round.completion.explicitZeroEntryCount;
+        shouldRefresh = true;
+        window.alert(`Contagem finalizada. ${zeroCount} ocorrência(s) foi(ram) registrada(s) como zero.`);
+    } catch (error) {
+        window.alert(error.message || "Não foi possível finalizar a contagem.");
+    } finally {
+        setCountRoundActionsBusy(false);
+        if (shouldRefresh) await refreshPilotDashboard("Contagem finalizada e fechamento salvo.");
+    }
 }
 
 async function loadCountConsolidationContext() {
@@ -2253,7 +2282,8 @@ connectPhysicalHierarchyEvents({
 });
 connectCountRoundEvents({
     onStart: startOperationalCountRound,
-    onContinue: continueOperationalCountRound
+    onContinue: continueOperationalCountRound,
+    onFinalize: finalizeOperationalCountRound
 });
 connectAreaCountingEvents({
     onCloseArea: closeAreaCounting,

@@ -143,6 +143,55 @@ function createEntryId() {
     return `location_entry_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+export function validateLocationCountCompletionEntry(entry) {
+    const candidate = normalizeLocationCountEntry(entry);
+    if (candidate?.quantityDecimal !== "0" || candidate.rawQuantityText.trim() !== "0") {
+        return validateLocationCountEntry(candidate);
+    }
+
+    const errors = [...collectIdentityErrors(candidate)];
+    if (!candidate.rawUnit) errors.push("O zero explícito precisa usar uma unidade controlada.");
+    if (!candidate.active || candidate.removedAt) errors.push("O zero explícito precisa nascer ativo.");
+    if (candidate.notes.length > 500) errors.push("A observação deve ter no máximo 500 caracteres.");
+    return {
+        isValid: errors.length === 0,
+        error: errors[0] || "",
+        errors,
+        entry: errors.length === 0 ? candidate : null
+    };
+}
+
+export function createLocationCountCompletionZeroEntryModel({
+    session,
+    plannedItem,
+    rawUnit,
+    id = createEntryId(),
+    timestamp = new Date().toISOString()
+} = {}) {
+    const validation = validateLocationCountCompletionEntry({
+        id,
+        sessionId: session?.id,
+        templateId: session?.templateId,
+        locationId: session?.locationId,
+        linkId: plannedItem?.linkId,
+        itemCode: plannedItem?.itemCode,
+        itemNameSnapshot: plannedItem?.itemNameSnapshot,
+        groupId: plannedItem?.groupId,
+        groupNameSnapshot: plannedItem?.groupNameSnapshot,
+        reportAreaSnapshot: session?.reportAreaSnapshot,
+        rawQuantityText: "0",
+        quantityDecimal: "0",
+        rawUnit,
+        notes: "",
+        active: true,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        removedAt: null
+    });
+    if (!validation.isValid) throw new Error(validation.error || "Zero explícito inválido.");
+    return validation.entry;
+}
+
 export function createLocationCountEntryModel({ session, plannedItem, rawQuantityText, rawUnit = "", notes = "" }) {
     const quantity = parseQuantityText(rawQuantityText);
     if (!quantity.isValid) throw new Error(quantity.error);
